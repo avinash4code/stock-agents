@@ -44,4 +44,10 @@ def test_agent_can_scan_multiple_topics_before_answering():
 
 def test_node_writes_macro_report_only():
     node = macro_agent_node(FakeToolCallingModel(messages=iter([AIMessage(content="report")])))
-    assert node({"stock": "TCS"}) == {"macro_report": "report"}
+    out = node({"stock": "TCS"})
+    assert out["macro_report"] == "report" and out["macro_meta"]["truncated"] is False
+
+
+def test_node_skips_the_agent_when_a_macro_report_is_supplied():
+    llm = FakeToolCallingModel(messages=iter([]))  # any LLM call would raise StopIteration
+    assert macro_agent_node(llm)({"stock": "TCS", "macro_report": "reused"}) == {}

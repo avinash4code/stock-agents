@@ -1,13 +1,18 @@
 """Chat model factory shared by all agents."""
 from __future__ import annotations
 
+import logging
+
 from langchain_core.language_models import BaseChatModel
 
 from stock_agents.config import LLMConfig
 
+logger = logging.getLogger(__name__)
+
 
 def default_llm(config: LLMConfig | None = None) -> BaseChatModel:
     config = config or LLMConfig.from_env()
+    logger.info("LLM: provider=%s model=%s max_tokens=%s", config.provider, config.model, config.max_tokens)
     common = {"temperature": config.temperature, "max_tokens": config.max_tokens}
     if config.provider == "deepseek":
         from langchain_deepseek import ChatDeepSeek

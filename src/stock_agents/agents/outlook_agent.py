@@ -70,6 +70,7 @@ def outlook_agent_node(llm: BaseChatModel):
     agent = build_outlook_agent(llm)
 
     def node(state: WorkflowState) -> dict:
-        return {"outlook_report": run_agent(agent, build_task(state))}
+        result = run_agent(agent, build_task(state))
+        return {"outlook_report": result.text, "outlook_meta": result.meta()}
 
     return node

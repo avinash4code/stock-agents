@@ -10,11 +10,13 @@ from stock_agents.state import WorkflowState
 
 
 def build_graph(llm: BaseChatModel | None = None):
-    """Compile the workflow: START -> news_agent -> macro_agent -> outlook_agent -> END.
+    """Compile the workflow.
 
-    The outlook agent depends on the other two reports. News and macro are independent of
-    each other, so they could be fanned out in parallel later (both edges from START, then
-    both into outlook_agent).
+        START -> news_agent  -+
+        START -> macro_agent -+-> outlook_agent -> END
+
+    News and macro are independent, so they run in parallel; the outlook agent starts once
+    both have finished and reads both reports.
     """
     llm = llm or default_llm()
 
@@ -23,12 +25,26 @@ def build_graph(llm: BaseChatModel | None = None):
     graph.add_node(macro_agent.NAME, macro_agent.macro_agent_node(llm))
     graph.add_node(outlook_agent.NAME, outlook_agent.outlook_agent_node(llm))
     graph.add_edge(START, news_agent.NAME)
-    graph.add_edge(news_agent.NAME, macro_agent.NAME)
-    graph.add_edge(macro_agent.NAME, outlook_agent.NAME)
+    graph.add_edge(START, macro_agent.NAME)
+    graph.add_edge([news_agent.NAME, macro_agent.NAME], outlook_agent.NAME)  # waits for both
     graph.add_edge(outlook_agent.NAME, END)
     return graph.compile()
 
 
-def run_workflow(stock: str, llm: BaseChatModel | None = None) -> dict:
-    """Run the workflow for one stock; returns the final state (`news_report`, `macro_report`, `outlook_report`)."""
-    return build_graph(llm).invoke({"stock": stock})
+def run_workflow(
+    stock: str,
+    llm: BaseChatModel | None = None,
+    news_report: str | None = None,
+    macro_report: str | None = None,
+) -> dict:
+    """Run the workflow for one stock; returns the final state.
+
+    Pass `news_report` and/or `macro_report` to reuse existing reports: the matching agent
+    is skipped and the supplied text is used as is.
+    """
+    initial = {"stock": stock}
+    if news_report:
+        initial["news_report"] = news_report
+    if macro_report:
+        initial["macro_report"] = macro_report
+    return build_graph(llm).invoke(initial)

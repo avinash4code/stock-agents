@@ -43,10 +43,17 @@ def build_macro_agent(llm: BaseChatModel, tools: list | None = None):
 
 
 def macro_agent_node(llm: BaseChatModel):
-    """Workflow node: writes `macro_report` (market-wide, independent of the stock)."""
+    """Workflow node: writes `macro_report` (market-wide, independent of the stock).
+
+    If the state already carries a `macro_report` (a recent one reused from storage), the
+    agent is skipped and nothing is written.
+    """
     agent = build_macro_agent(llm)
 
     def node(state: WorkflowState) -> dict:
-        return {"macro_report": run_agent(agent, TASK)}
+        if state.get("macro_report"):
+            return {}
+        result = run_agent(agent, TASK)
+        return {"macro_report": result.text, "macro_meta": result.meta()}
 
     return node

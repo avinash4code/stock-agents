@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import time
+from typing import ClassVar
 from email.utils import formatdate
 from urllib.parse import quote
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 def _rfc822(days_ago: float) -> str:
     return formatdate(time.time() - days_ago * 86400, usegmt=True)
@@ -34,3 +37,37 @@ class FakeToolCallingModel(GenericFakeChatModel):
 
     def bind_tools(self, tools, **kwargs):
         return self
+
+
+class AgentScriptedModel(BaseChatModel):
+    """Fake LLM for multi-agent runs: each agent has its own response script.
+
+    Agents run in parallel and share one model object, so responses are routed by the
+    calling agent (identified from its system prompt) instead of by call order.
+    `seen` records (agent, messages) for every call.
+    """
+
+    scripts: dict
+    seen: list = []
+
+    MARKERS: ClassVar[dict] = {
+        "news": "gathers recent news about Indian listed stocks",
+        "macro": "macro research analyst",
+        "outlook": "equity research analyst",
+    }
+
+    @property
+    def _llm_type(self) -> str:
+        return "agent-scripted-fake"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        system = messages[0].content
+        agent = next(name for name, marker in self.MARKERS.items() if marker in system)
+        self.seen.append((agent, messages))
+        return ChatResult(generations=[ChatGeneration(message=self.scripts[agent].pop(0))])
+
+    def messages_for(self, agent: str) -> list:
+        return [m for a, m in self.seen if a == agent]

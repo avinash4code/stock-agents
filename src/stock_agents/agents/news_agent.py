@@ -32,10 +32,17 @@ def build_news_agent(llm: BaseChatModel, tools: list | None = None):
 
 
 def news_agent_node(llm: BaseChatModel):
-    """Workflow node: reads `stock`, writes `news_report`."""
+    """Workflow node: reads `stock`, writes `news_report`.
+
+    If the state already carries a `news_report` (a recent one reused from storage), the
+    agent is skipped and nothing is written.
+    """
     agent = build_news_agent(llm)
 
     def node(state: WorkflowState) -> dict:
-        return {"news_report": run_agent(agent, f"Gather the latest news about {state['stock']}.")}
+        if state.get("news_report"):
+            return {}
+        result = run_agent(agent, f"Gather the latest news about {state['stock']}.")
+        return {"news_report": result.text, "news_meta": result.meta()}
 
     return node

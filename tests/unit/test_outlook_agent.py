@@ -40,4 +40,5 @@ def test_agent_is_a_single_llm_turn_with_no_tools():
 
 def test_node_writes_outlook_report():
     node = outlook_agent_node(FakeToolCallingModel(messages=iter([AIMessage(content="outlook")])))
-    assert node({"stock": "TCS", "news_report": "n", "macro_report": "m"}) == {"outlook_report": "outlook"}
+    out = node({"stock": "TCS", "news_report": "n", "macro_report": "m"})
+    assert out["outlook_report"] == "outlook" and out["outlook_meta"]["truncated"] is False

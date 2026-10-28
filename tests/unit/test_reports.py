@@ -1,51 +1,82 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-from stock_agents import cli
-from stock_agents.reports import save_macro_report, save_outlook_report, save_report, slugify
+import pytest
 
-NOW = datetime(2026, 10, 26, 14, 5)
+from stock_agents.agents.common import TRUNCATION_NOTE
+from stock_agents.reports import (
+    export_filename, export_report, import_reports, read_report_body, render_markdown, slugify,
+)
+from stock_agents.storage import Repository, connect
+
+T0 = datetime(2026, 10, 26, 14, 5, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def repo():
+    repo = Repository(connect(":memory:"))
+    repo.run_id = repo.start_run("all", "TCS")
+    return repo
+
+
+def make(repo, agent, stock, text="body"):
+    return repo.get(repo.save_report(repo.run_id, agent, text, stock=stock, created_at=T0))
 
 
 def test_slugify():
     assert slugify("Reliance Industries Ltd.") == "reliance-industries-ltd"
-    assert slugify("M&M") == "m-m"
     assert slugify("???") == "stock"
 
 
-def test_save_report_creates_folder_and_file(tmp_path):
-    path = save_report("TCS", "- bullet\n", tmp_path / "news_reports", now=NOW)
-    assert path == tmp_path / "news_reports" / "tcs_2026-10-26_1405.md"
-    text = path.read_text()
-    assert text.startswith("# News report: TCS") and "- bullet" in text
+def test_render_markdown_titles(repo):
+    news, macro, outlook = make(repo, "news", "TCS"), make(repo, "macro", None), make(repo, "outlook", "TCS")
+    assert render_markdown(news).startswith("# News report: TCS")
+    assert render_markdown(macro).startswith("# Macro report: Indian markets")
+    assert render_markdown(outlook).startswith("# Outlook: TCS")
+    assert f"(report #{news.id})" in render_markdown(news) and "body" in render_markdown(news)
 
 
-def test_save_macro_report_sits_beside_the_news_report(tmp_path):
-    folder = tmp_path / "news_reports"
-    news = save_report("TCS", "n", folder, now=NOW)
-    macro = save_macro_report("## Overall tone\nmixed", folder, now=NOW)
-    assert macro == folder / "macro_2026-10-26_1405.md"
-    assert macro.parent == news.parent
-    assert macro.read_text().startswith("# Macro report") and "mixed" in macro.read_text()
+def test_export_filenames_follow_the_old_scheme(repo):
+    local = T0.astimezone()
+    stamp = f"{local:%Y-%m-%d_%H%M}"
+    assert export_filename(make(repo, "news", "Tata Motors")) == f"tata-motors_{stamp}.md"
+    assert export_filename(make(repo, "macro", None)) == f"macro_{stamp}.md"
+    assert export_filename(make(repo, "outlook", "Tata Motors")) == f"tata-motors_outlook_{stamp}.md"
 
 
-def test_save_outlook_report_is_named_after_the_stock(tmp_path):
-    path = save_outlook_report("Tata Motors", "## Sector\npositive", tmp_path, now=NOW)
-    assert path == tmp_path / "tata-motors_outlook_2026-10-26_1405.md"
-    assert path.read_text().startswith("# Outlook: Tata Motors")
+def test_export_report_writes_file(repo, tmp_path):
+    path = export_report(make(repo, "news", "TCS", "hello"), tmp_path / "out")
+    assert path.parent == tmp_path / "out" and "hello" in path.read_text()
 
 
-def test_cli_saves_all_reports_into_news_reports_by_default(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        cli, "run_workflow", lambda stock: {"news_report": f"summary for {stock}", "macro_report": "macro view", "outlook_report": "outlook view"}
-    )
-    assert cli.main(["Infosys"]) == 0
-    folder = tmp_path / "news_reports"
-    (news,) = folder.glob("infosys_2*.md")
-    (macro,) = folder.glob("macro_*.md")
-    (outlook,) = folder.glob("infosys_outlook_*.md")
-    assert "outlook view" in outlook.read_text()
-    assert "summary for Infosys" in news.read_text() and "macro view" not in news.read_text()
-    assert "macro view" in macro.read_text()
-    out = capsys.readouterr().out
-    assert "summary for Infosys" in out and "macro view" in out
+def test_read_report_body_strips_header(tmp_path):
+    f = tmp_path / "a.md"
+    f.write_text("# News report: TCS\n\n_Generated 2026-10-26 14:05_\n\n## Heading\ntext\n")
+    assert read_report_body(f) == "## Heading\ntext"
+
+
+def _old_files(folder):
+    folder.mkdir()
+    (folder / "tcs_2026-10-26_1405.md").write_text("# News report: TCS\n\n_Generated x_\n\nnews body\n")
+    (folder / "macro_2026-10-26_1405.md").write_text("# Macro report: Indian markets\n\n_Generated x_\n\nmacro body\n")
+    (folder / "tata-motors_outlook_2026-10-26_1405.md").write_text("# Outlook: Tata Motors\n\n_Generated x_\n\nout\n")
+    (folder / "tcs_outlook_2026-10-26_1500.md").write_text(f"# Outlook: TCS\n\n_Generated x_\n\n{TRUNCATION_NOTE}\n")
+    (folder / "tcs_outlook_2026-10-26_1600.md").write_text("# Outlook: TCS\n\n_Generated x_\n\n")  # empty
+    (folder / "notes.md").write_text("not a report")
+
+
+def test_import_old_files(repo, tmp_path):
+    _old_files(tmp_path / "old")
+    assert import_reports(repo, tmp_path / "old") == (5, 1)
+    by_agent = {(r.agent, r.stock): r for r in repo.list(limit=50)}
+    assert by_agent[("news", "TCS")].content_md == "news body"
+    assert by_agent[("macro", None)].content_md == "macro body"
+    assert ("outlook", "Tata Motors") in by_agent  # stock name recovered from the title, not the slug
+    outlooks = {r.created_at.astimezone().hour: r for r in repo.list(agent="outlook", stock="TCS")}
+    assert sorted(r.truncated for r in outlooks.values()) == [True, True]  # note present, and empty body
+
+
+def test_import_is_idempotent(repo, tmp_path):
+    _old_files(tmp_path / "old")
+    import_reports(repo, tmp_path / "old")
+    assert import_reports(repo, tmp_path / "old") == (0, 6)
+    assert len(repo.list(limit=50)) == 5

@@ -20,3 +20,7 @@ class WorkflowState(TypedDict, total=False):
     news_report: str
     macro_report: str
     outlook_report: str
+    # Per-agent run details (truncated flag, token usage); saved next to each report.
+    news_meta: dict
+    macro_meta: dict
+    outlook_meta: dict

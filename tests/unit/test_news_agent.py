@@ -49,3 +49,18 @@ def test_tool_call_loops_back_to_llm():
 
 def test_system_prompt_forbids_advice():
     assert "do not give investment advice" in SYSTEM_PROMPT
+
+
+def test_node_writes_news_report_and_meta():
+    from stock_agents.agents.news_agent import news_agent_node
+
+    node = news_agent_node(FakeToolCallingModel(messages=iter([AIMessage(content="report")])))
+    out = node({"stock": "TCS"})
+    assert out["news_report"] == "report" and out["news_meta"]["truncated"] is False
+
+
+def test_node_skips_the_agent_when_a_news_report_is_supplied():
+    from stock_agents.agents.news_agent import news_agent_node
+
+    node = news_agent_node(FakeToolCallingModel(messages=iter([])))  # any LLM call would raise
+    assert node({"stock": "TCS", "news_report": "reused"}) == {}
