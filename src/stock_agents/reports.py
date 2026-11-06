@@ -10,7 +10,8 @@ from stock_agents.storage import Report, Repository
 
 DEFAULT_EXPORT_DIR = "exports"
 
-TITLES = {"news": "News report", "macro": "Macro report: Indian markets", "outlook": "Outlook"}
+TITLES = {"news": "News report", "macro": "Macro report: Indian markets", "outlook": "Outlook",
+          "fundamentals": "Fundamentals report"}
 
 
 def slugify(text: str) -> str:
@@ -27,7 +28,8 @@ def render_markdown(report: Report) -> str:
 
 def export_filename(report: Report) -> str:
     when = report.created_at.astimezone()
-    name = {"macro": "macro", "news": slugify(report.stock or ""), "outlook": f"{slugify(report.stock or '')}_outlook"}
+    name = {"macro": "macro", "news": slugify(report.stock or ""), "outlook": f"{slugify(report.stock or '')}_outlook",
+            "fundamentals": f"{slugify(report.stock or '')}_fundamentals"}
     return f"{name[report.agent]}_{when:%Y-%m-%d_%H%M}.md"
 
 
@@ -55,7 +57,7 @@ def read_report_body(path: str | Path) -> str:
 
 def _stock_from_title(path: Path, fallback: str) -> str:
     first = path.read_text(encoding="utf-8").split("\n", 1)[0]
-    match = re.match(r"^# (?:News report|Outlook): (.+)$", first)
+    match = re.match(r"^# (?:News report|Outlook|Fundamentals report): (.+)$", first)
     return match.group(1).strip() if match else fallback
 
 
@@ -72,6 +74,8 @@ def import_reports(repo: Repository, directory: str | Path) -> tuple[int, int]:
         created = datetime.strptime(match["ts"], "%Y-%m-%d_%H%M").astimezone(timezone.utc)  # file names are local time
         if name == "macro":
             agent, stock = "macro", None
+        elif name.endswith("_fundamentals"):
+            agent, stock = "fundamentals", _stock_from_title(path, name[: -len("_fundamentals")])
         elif name.endswith("_outlook"):
             agent, stock = "outlook", _stock_from_title(path, name[: -len("_outlook")])
         else:

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import time
+from datetime import date
+from pathlib import Path
+
+import pytest
 from typing import ClassVar
 from email.utils import formatdate
 from urllib.parse import quote
@@ -54,6 +58,7 @@ class AgentScriptedModel(BaseChatModel):
         "news": "gathers recent news about Indian listed stocks",
         "macro": "macro research analyst",
         "outlook": "equity research analyst",
+        "fundamentals": "fundamental equity analyst",
     }
 
     @property
@@ -71,3 +76,30 @@ class AgentScriptedModel(BaseChatModel):
 
     def messages_for(self, agent: str) -> list:
         return [m for a, m in self.seen if a == agent]
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+FETCHED = date(2026, 11, 6)
+PAGES = {  # fixture file -> the URL the page was served from
+    "screener_tcs.html": "https://www.screener.in/company/TCS/consolidated/",
+    "screener_infy_standalone.html": "https://www.screener.in/company/INFY/",
+    "screener_hdfcbank.html": "https://www.screener.in/company/HDFCBANK/consolidated/",
+    "screener_idea.html": "https://www.screener.in/company/IDEA/consolidated/",
+}
+
+
+def fixture_html(name: str) -> str:
+    """A trimmed copy of a real Screener company page (see tests/fixtures)."""
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def sample_financials(name: str = "screener_tcs.html"):
+    from stock_agents.screener import parse_company_page
+
+    return parse_company_page(fixture_html(name), PAGES[name], today=FETCHED)
+
+
+@pytest.fixture(autouse=True)
+def no_real_financial_data(monkeypatch):
+    """Tests never reach Screener: the fundamentals agent gets the TCS sample unless a test overrides this."""
+    monkeypatch.setattr("stock_agents.agents.fundamentals_agent.fetch_fundamentals", lambda stock: sample_financials())

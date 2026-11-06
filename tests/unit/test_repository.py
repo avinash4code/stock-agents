@@ -99,3 +99,15 @@ def test_exists_matches_agent_stock_and_time(repo):
     assert repo.exists("news", "tcs", T0) and repo.exists("macro", None, T0)
     assert not repo.exists("news", "TCS", T0 + timedelta(minutes=1))
     assert not repo.exists("outlook", "TCS", T0)
+
+
+def test_fundamentals_reports_are_per_stock_and_linked_from_outlooks(repo):
+    old = repo.save_report(repo.run_id, "fundamentals", "old", stock="TCS", created_at=T0)
+    new = repo.save_report(repo.run_id, "fundamentals", "new", stock="tcs", created_at=T0 + timedelta(hours=1))
+    repo.save_report(repo.run_id, "fundamentals", "other", stock="Infosys", created_at=T0 + timedelta(hours=2))
+    assert repo.latest("fundamentals", "TCS").id == new != old
+    assert repo.latest("fundamentals", "TCS", max_age=timedelta(minutes=30), now=T0 + timedelta(hours=3)) is None
+    with pytest.raises(ValueError, match="need a stock"):
+        repo.save_report(repo.run_id, "fundamentals", "x")
+    out = repo.save_report(repo.run_id, "outlook", "o", stock="TCS", fundamentals_report_id=new)
+    assert repo.get(out).fundamentals_report_id == new and repo.get(new).fundamentals_report_id is None

@@ -23,17 +23,20 @@ class FakeNode:
 def env(tmp_path, monkeypatch):
     db = tmp_path / "test.db"
     monkeypatch.chdir(tmp_path)  # no stray .env from the repo
-    for var in ("STOCK_ANALYST_NEWS_MAX_AGE_HOURS", "STOCK_ANALYST_MACRO_MAX_AGE_HOURS"):
+    for var in ("STOCK_ANALYST_NEWS_MAX_AGE_HOURS", "STOCK_ANALYST_MACRO_MAX_AGE_HOURS",
+                "STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(cli, "_llm", lambda: (CFG, object()))
     nodes = {
         "news": FakeNode("news_report", "NEWS BODY"),
         "macro": FakeNode("macro_report", "MACRO BODY"),
         "outlook": FakeNode("outlook_report", "OUTLOOK BODY"),
+        "fundamentals": FakeNode("fundamentals_report", "FUNDAMENTALS BODY"),
     }
     monkeypatch.setattr(cli.news_agent, "news_agent_node", lambda llm: nodes["news"])
     monkeypatch.setattr(cli.macro_agent, "macro_agent_node", lambda llm: nodes["macro"])
     monkeypatch.setattr(cli.outlook_agent, "outlook_agent_node", lambda llm: nodes["outlook"])
+    monkeypatch.setattr(cli.fundamentals_agent, "fundamentals_agent_node", lambda llm: nodes["fundamentals"])
     return db, nodes
 
 
@@ -127,43 +130,50 @@ def test_outlook_rejects_an_id_of_the_wrong_kind(env):
 
 def full_result(**extra):
     return {
-        "news_report": "n", "macro_report": "m", "outlook_report": "o",
-        "news_meta": META, "macro_meta": META, "outlook_meta": {**META, "truncated": True}, **extra,
+        "news_report": "n", "macro_report": "m", "outlook_report": "o", "fundamentals_report": "f",
+        "news_meta": META, "macro_meta": META, "fundamentals_meta": META,
+        "outlook_meta": {**META, "truncated": True}, **extra,
     }
 
 
-def test_all_stores_three_linked_reports_in_one_run(env, monkeypatch, capsys):
+def test_all_stores_four_linked_reports_in_one_run(env, monkeypatch, capsys):
     db, _ = env
-    monkeypatch.setattr(cli, "run_workflow", lambda stock, llm, news_report=None, macro_report=None: full_result())
+    monkeypatch.setattr(cli, "run_workflow", lambda stock, llm, news_report=None, macro_report=None, fundamentals_report=None: full_result())
     assert run(db, "all", "Infosys") == 0
     reports = {r.agent: r for r in repo_for(db).list()}
-    assert set(reports) == {"news", "macro", "outlook"} and len({r.run_id for r in reports.values()}) == 1
+    assert set(reports) == {"news", "macro", "fundamentals", "outlook"} and len({r.run_id for r in reports.values()}) == 1
     assert reports["outlook"].news_report_id == reports["news"].id
     assert reports["outlook"].macro_report_id == reports["macro"].id
+    assert reports["outlook"].fundamentals_report_id == reports["fundamentals"].id
     assert reports["outlook"].truncated and not reports["news"].truncated
     assert "INCOMPLETE" in capsys.readouterr().err
 
 
 def test_legacy_form_without_a_command_runs_all(env, monkeypatch):
     db, _ = env
-    monkeypatch.setattr(cli, "run_workflow", lambda stock, llm, news_report=None, macro_report=None: full_result())
+    monkeypatch.setattr(cli, "run_workflow", lambda stock, llm, news_report=None, macro_report=None, fundamentals_report=None: full_result())
     assert cli.main(["--db", str(db), "Infosys"]) == 0  # option before the stock
     assert cli.main(["Infosys", "--db", str(db)]) == 0  # option after it
-    # the second run reuses the first run's news and macro reports (within 6h) and only adds an outlook
-    assert len(repo_for(db).list(limit=50)) == 4
+    # the second run reuses the first run's news, macro and fundamentals reports and only adds an outlook
+    assert len(repo_for(db).list(limit=50)) == 5
 
 
 @pytest.fixture
 def workflow(env, monkeypatch):
     """Fake workflow that behaves like the real one: supplied reports are used as is and not regenerated."""
     db, _ = env
-    calls = []
+    class Calls(list):
+        fundamentals: list  # the `fundamentals_report` argument of each call
 
-    def fake(stock, llm, news_report=None, macro_report=None):
+    calls = Calls()
+    calls.fundamentals = fund_calls = []
+
+    def fake(stock, llm, news_report=None, macro_report=None, fundamentals_report=None):
         calls.append({"news_report": news_report, "macro_report": macro_report})
+        fund_calls.append(fundamentals_report)
         result = full_result()
-        for key in ("news", "macro"):
-            supplied = {"news": news_report, "macro": macro_report}[key]
+        for key in ("news", "macro", "fundamentals"):
+            supplied = {"news": news_report, "macro": macro_report, "fundamentals": fundamentals_report}[key]
             if supplied:
                 result[f"{key}_report"] = supplied
                 del result[f"{key}_meta"]
@@ -250,6 +260,94 @@ def test_env_settings_change_the_default_and_cli_beats_them(workflow, monkeypatc
     assert calls[-1] == {"news_report": None, "macro_report": "STORED MACRO"}
     run(db, "all", "TCS", "--max-news-age", "6")  # CLI beats the env value of 3 (news from run 1 is fresh)
     assert calls[-1]["news_report"] is not None
+
+
+def test_fundamentals_are_reused_for_a_week_by_default(workflow, capsys):
+    db, calls = workflow
+    fund_id = seed(db, "fundamentals", "TCS", age_hours=100)  # older than news/macro limit, within a week
+    run(db, "all", "TCS")
+    assert calls.fundamentals == ["STORED FUNDAMENTALS"]
+    assert counts(db) == {"news": 1, "macro": 1, "outlook": 1} and len(repo_for(db).list(agent="fundamentals")) == 1
+    assert repo_for(db).latest("outlook", "TCS", include_truncated=True).fundamentals_report_id == fund_id
+    assert f"Reusing fundamentals report #{fund_id}" in capsys.readouterr().err
+
+
+def test_old_fundamentals_and_the_flag_force_a_rerun(workflow):
+    db, calls = workflow
+    seed(db, "fundamentals", "TCS", age_hours=24 * 8)
+    run(db, "all", "TCS")
+    assert calls.fundamentals == [None]
+    run(db, "all", "TCS", "--max-fundamentals-age", "0")
+    assert calls.fundamentals == [None, None]
+    assert len(repo_for(db).list(agent="fundamentals")) == 3
+
+
+def test_all_still_runs_the_outlook_when_fundamentals_are_unavailable(env, monkeypatch, capsys):
+    db, _ = env
+    result = full_result(fundamentals_error="no quarterly financials found for X.NS")
+    del result["fundamentals_report"], result["fundamentals_meta"]
+    monkeypatch.setattr(cli, "run_workflow", lambda *a, **k: result)
+    assert run(db, "all", "TCS") == 0
+    assert repo_for(db).list(agent="fundamentals") == []
+    assert repo_for(db).latest("outlook", "TCS", include_truncated=True).fundamentals_report_id is None
+    assert "no fundamentals report - no quarterly financials found" in capsys.readouterr().err
+
+
+def test_fundamentals_command_runs_only_that_agent_and_stores_it(env, capsys):
+    db, nodes = env
+    assert run(db, "fundamentals", "TCS") == 0
+    assert nodes["fundamentals"].state == {"stock": "TCS"} and nodes["news"].state is None
+    (r,) = repo_for(db).list()
+    assert (r.agent, r.stock, r.content_md) == ("fundamentals", "TCS", "FUNDAMENTALS BODY")
+    assert "FUNDAMENTALS BODY" in capsys.readouterr().out
+
+
+def test_fundamentals_command_fails_clearly_when_data_is_unavailable(env, monkeypatch):
+    db, _ = env
+    monkeypatch.setattr(cli.fundamentals_agent, "fundamentals_agent_node",
+                        lambda llm: lambda state: {"fundamentals_error": "no data"})
+    with pytest.raises(SystemExit, match="Cannot run fundamentals: no data"):
+        run(db, "fundamentals", "TCS")
+    assert repo_for(db).list() == []
+    assert rows(db, "SELECT status FROM runs") == [("failed",)]
+
+
+def test_outlook_includes_the_latest_stored_fundamentals(env):
+    db, nodes = env
+    repo = repo_for(db)
+    with repo.conn:
+        rid = repo.start_run("seed", "TCS")
+        repo.save_report(rid, "news", "N", stock="TCS")
+        repo.save_report(rid, "macro", "M")
+        repo.save_report(rid, "fundamentals", "OLD F", stock="Infosys")
+        fund = repo.save_report(rid, "fundamentals", "F", stock="tcs")
+    run(db, "outlook", "TCS")
+    assert nodes["outlook"].state["fundamentals_report"] == "F"
+    assert repo_for(db).latest("outlook", "TCS").fundamentals_report_id == fund
+
+
+def test_outlook_runs_without_fundamentals_and_says_so(env, capsys):
+    db, nodes = env
+    repo = repo_for(db)
+    with repo.conn:
+        rid = repo.start_run("seed", "TCS")
+        repo.save_report(rid, "news", "N", stock="TCS")
+        repo.save_report(rid, "macro", "M")
+    run(db, "outlook", "TCS")
+    assert nodes["outlook"].state["fundamentals_report"] == ""
+    assert repo_for(db).latest("outlook", "TCS").fundamentals_report_id is None
+    assert "run `stock-analyst fundamentals TCS` first" in capsys.readouterr().err
+
+
+def test_outlook_rejects_a_missing_explicit_fundamentals_id(env):
+    db, _ = env
+    repo = repo_for(db)
+    with repo.conn:
+        rid = repo.start_run("seed", "TCS")
+        repo.save_report(rid, "news", "N", stock="TCS")
+        repo.save_report(rid, "macro", "M")
+    with pytest.raises(SystemExit, match="no fundamentals report #77"):
+        run(db, "outlook", "TCS", "--fundamentals-id", "77")
 
 
 def test_negative_age_is_rejected(workflow):

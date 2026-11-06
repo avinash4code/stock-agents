@@ -99,18 +99,20 @@ def db_path(load_env_file: bool = True) -> Path:
 
 
 DEFAULT_MAX_AGE_HOURS = 6.0
+# Quarterly results change about four times a year, so a fundamentals report is reused for a week.
+DEFAULT_MAX_AGE_BY_KIND = {"fundamentals": 24.0 * 7}
 
 
 def reuse_hours(kind: str, load_env_file: bool = True) -> float:
-    """How many hours a stored `news` or `macro` report is reused instead of re-running its
-    agent: `STOCK_ANALYST_NEWS_MAX_AGE_HOURS` / `STOCK_ANALYST_MACRO_MAX_AGE_HOURS`, default 6.
-    0 turns reuse off."""
+    """How many hours a stored `news`, `macro` or `fundamentals` report is reused instead of re-running
+    its agent: `STOCK_ANALYST_NEWS_MAX_AGE_HOURS` / `..._MACRO_...` (default 6) or
+    `STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS` (default 168, one week). 0 turns reuse off."""
     if load_env_file:
         _load_env_file()
     var = f"STOCK_ANALYST_{kind.upper()}_MAX_AGE_HOURS"
     raw = os.getenv(var, "").strip()
     if not raw:
-        return DEFAULT_MAX_AGE_HOURS
+        return DEFAULT_MAX_AGE_BY_KIND.get(kind, DEFAULT_MAX_AGE_HOURS)
     try:
         hours = float(raw)
     except ValueError:

@@ -18,8 +18,10 @@ def test_prompt_requires_sector_company_and_three_horizons():
     assert "do not give buy/sell/hold" in p and "not investment advice" in p
 
 
-def test_build_task_embeds_both_reports():
-    task = build_task({"stock": "TCS", "news_report": "N-REPORT", "macro_report": "M-REPORT"})
+def test_build_task_embeds_all_reports():
+    task = build_task({"stock": "TCS", "news_report": "N-REPORT", "macro_report": "M-REPORT",
+                       "fundamentals_report": "F-REPORT"})
+    assert "<fundamentals_report>\nF-REPORT\n</fundamentals_report>" in task
     assert "Stock: TCS" in task
     assert "<news_report>\nN-REPORT\n</news_report>" in task
     assert "<macro_report>\nM-REPORT\n</macro_report>" in task
@@ -27,7 +29,7 @@ def test_build_task_embeds_both_reports():
 
 def test_build_task_marks_missing_reports():
     task = build_task({"stock": "TCS", "news_report": ""})
-    assert task.count("(not available)") == 2
+    assert task.count("(not available)") == 3
 
 
 def test_agent_is_a_single_llm_turn_with_no_tools():

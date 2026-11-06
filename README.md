@@ -1,15 +1,29 @@
 # stock-analyst
 
-A LangGraph multi-agent system for analysing Indian stocks. Today it has three agents (company news, macro environment, and a short/medium/long-term outlook); more analysis agents can be added to the workflow. News comes from the Bing News RSS feed (no news API key); the LLM is configurable (Anthropic or DeepSeek).
+A LangGraph multi-agent system for analysing Indian stocks. Today it has four agents (company news, macro environment, fundamentals, and a short/medium/long-term outlook); more analysis agents can be added to the workflow. News comes from the Bing News RSS feed (no news API key); company financials are scraped from Screener.in (no key); the LLM is configurable (Anthropic or DeepSeek).
 
-    START -> news_agent  -+
-    START -> macro_agent -+-> outlook_agent -> END   (news and macro run in parallel)
+    START -> news_agent         -+
+    START -> macro_agent        -+-> outlook_agent -> END   (news, macro and fundamentals run in parallel)
+    START -> fundamentals_agent -+
 
 - `news_agent`: headlines for the stock (`get_stock_news`), reads the top articles (`read_article`), summarises.
 - `macro_agent`: scans macro themes (wars, crude, repo rate, budget/fiscal policy, elections, bond yields, ...)
   with `get_macro_news`, reads the 3-4 most relevant articles, and gives a detailed analysis plus overall tone.
 
-- `outlook_agent`: no tools; reads the two reports and gives a sector view and a company view for the short (<=3 months),
+- `fundamentals_agent`: no tools. One Screener.in page per company is fetched (`screener.py`; the consolidated view, else
+  standalone) and parsed into: 13 quarters of profit & loss, the annual profit & loss with a TTM column, annual balance
+  sheet, cash flow and efficiency ratios (ROCE, debtor days, ...), the quarterly shareholding pattern (promoters / FIIs /
+  DIIs / public), key ratios and Screener's own pros/cons. All growth, margin, leverage, cash-conversion and
+  shareholding-change maths is done in code (`metrics.py`); the model only interprets the tables (growth, profitability,
+  balance sheet and cash flow, shareholding, red flags, what to watch). The stored report is the data tables followed by
+  the analysis, so you can check every number. If Screener cannot be reached the workflow carries on without it.
+  Names are resolved to symbols locally from NSE's official list of listed equities (`symbols.py`, cached as
+  `nse_equities.csv` next to the database, refreshed monthly), because Screener's search endpoint is disallowed for
+  automated clients by its robots.txt. Banks and NBFCs have different rows and are flagged; balance sheet, cash flow and
+  ratios are annual only (Screener does not publish them quarterly). Scraping is for personal use: one request per
+  company, an identifying User-Agent, no login. Check Screener's terms before relying on it.
+
+- `outlook_agent`: no tools; reads the three reports and gives a sector view and a company view for the short (<=3 months),
   medium (3-12 months) and long (>1 year) term, with stance, confidence, drivers, risks and stated assumptions.
 
 Each agent runs its own LLM/tool loop with a private conversation and writes its report to the shared
@@ -27,15 +41,17 @@ To add an agent: create `agents/<name>.py`, then add it as a node and edges in `
     stock-analyst all Infosys      # whole workflow (`stock-analyst Infosys` does the same)
     stock-analyst news Infosys     # news agent only
     stock-analyst macro            # macro agent only (market-wide, no stock needed)
-    stock-analyst outlook Infosys  # outlook agent only; uses the latest stored news + macro reports
-    stock-analyst outlook Infosys --news-id 12 --macro-id 11   # or pick the reports explicitly
-    stock-analyst all Infosys --max-news-age 1 --max-macro-age 24   # per-run override of the reuse limits (hours)
-    stock-analyst all Infosys --max-news-age 0 --max-macro-age 0    # 0 = always re-run that agent
+    stock-analyst fundamentals Infosys   # fundamentals agent only (quarterly results analysis)
+    stock-analyst outlook Infosys  # outlook agent only; uses the latest stored news + macro (+ fundamentals) reports
+    stock-analyst outlook Infosys --news-id 12 --macro-id 11 --fundamentals-id 13   # or pick the reports explicitly
+    stock-analyst all Infosys --max-news-age 1 --max-macro-age 24 --max-fundamentals-age 0   # per-run override of the reuse limits (hours)
+    stock-analyst all Infosys --max-news-age 0 --max-macro-age 0 --max-fundamentals-age 0    # 0 = always re-run that agent
 
 `all` reuses stored reports instead of re-running an agent when they are recent enough: the stock's news report and
 the macro report if each is younger than 6 hours (complete reports only; the outlook agent always runs, on the
 reused reports, and records which ones it used). Set the defaults with `STOCK_ANALYST_NEWS_MAX_AGE_HOURS` and
-`STOCK_ANALYST_MACRO_MAX_AGE_HOURS` in `.env`; the command-line flags win. The standalone `news` and `macro`
+`STOCK_ANALYST_MACRO_MAX_AGE_HOURS` in `.env`; the command-line flags win. The stock's fundamentals report is reused
+for a week by default (quarterly data changes rarely; `STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS`). The standalone `news`, `macro` and `fundamentals`
 commands always run their agent.
 
 Add `-v` to log the settings used and each agent's token usage / finish reason.
@@ -47,7 +63,7 @@ change it with `STOCK_ANALYST_DB` in `.env` or `--db PATH`). Each report keeps i
 usage, whether it was cut off by the token limit, and (for outlooks) which news and macro reports it used.
 Reports cut off by the token limit are skipped when the outlook agent picks its inputs.
 
-    stock-analyst reports list [--agent news|macro|outlook] [--stock TCS] [--limit 20]
+    stock-analyst reports list [--agent news|macro|fundamentals|outlook] [--stock TCS] [--limit 20]
     stock-analyst reports show 22
     stock-analyst reports export 22 15 11 --dir exports     # write markdown files
     stock-analyst import news_reports                       # one-time import of reports saved as files by older versions

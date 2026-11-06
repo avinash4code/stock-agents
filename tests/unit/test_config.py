@@ -6,6 +6,7 @@ VARS = [
     "LLM_PROVIDER", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
     "LLM_MODEL", "LLM_TEMPERATURE", "LLM_MAX_TOKENS", "LLM_BASE_URL", "STOCK_ANALYST_DB",
     "STOCK_ANALYST_NEWS_MAX_AGE_HOURS", "STOCK_ANALYST_MACRO_MAX_AGE_HOURS",
+    "STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS",
 ]
 
 
@@ -128,3 +129,11 @@ def test_reuse_hours_rejects_bad_values(monkeypatch, bad):
     monkeypatch.setenv("STOCK_ANALYST_NEWS_MAX_AGE_HOURS", bad)
     with pytest.raises(RuntimeError, match="STOCK_ANALYST_NEWS_MAX_AGE_HOURS"):
         reuse_hours("news")
+
+
+def test_fundamentals_reuse_defaults_to_a_week_and_is_configurable(monkeypatch):
+    from stock_agents.config import reuse_hours
+
+    assert reuse_hours("fundamentals") == 168.0 and reuse_hours("news") == 6.0
+    monkeypatch.setenv("STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS", "24")
+    assert reuse_hours("fundamentals") == 24.0

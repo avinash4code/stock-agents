@@ -57,3 +57,35 @@ def test_constraints_reject_bad_rows(tmp_path):
         conn.execute("INSERT INTO reports (run_id, agent, content_md, created_at) VALUES (1,'bogus','c','t')")
     with pytest.raises(sqlite3.IntegrityError):  # dangling run
         conn.execute("INSERT INTO reports (run_id, agent, content_md, created_at) VALUES (99,'news','c','t')")
+
+
+def test_migration_2_keeps_existing_reports_and_links_and_allows_fundamentals(tmp_path):
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.row_factory = sqlite3.Row
+    raw.executescript(f"BEGIN;\n{MIGRATIONS[0]}\nPRAGMA user_version = 1;\nCOMMIT;")
+    raw.execute("INSERT INTO runs (command, started_at) VALUES ('all', 't')")
+    for agent in ("news", "macro"):
+        raw.execute("INSERT INTO reports (run_id, agent, stock, stock_key, content_md, truncated, created_at)"
+                    " VALUES (1, ?, 'TCS', 'tcs', ?, 1, 't')", (agent, f"{agent} body"))
+    raw.execute("INSERT INTO reports (run_id, agent, stock, stock_key, content_md, created_at, news_report_id,"
+                " macro_report_id) VALUES (1, 'outlook', 'TCS', 'tcs', 'o', 't', 1, 2)")
+    raw.commit()
+    raw.close()
+
+    conn = connect(path)
+    assert version(conn) == len(MIGRATIONS) >= 2
+    rows = conn.execute("SELECT id, agent, content_md, truncated, news_report_id, macro_report_id,"
+                        " fundamentals_report_id FROM reports ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [
+        (1, "news", "news body", 1, None, None, None),
+        (2, "macro", "macro body", 1, None, None, None),
+        (3, "outlook", "o", 0, 1, 2, None),
+    ]
+    conn.execute("INSERT INTO reports (run_id, agent, content_md, created_at, fundamentals_report_id)"
+                 " VALUES (1, 'fundamentals', 'f', 't', NULL)")
+    with pytest.raises(sqlite3.IntegrityError):  # the check still rejects unknown agents
+        conn.execute("INSERT INTO reports (run_id, agent, content_md, created_at) VALUES (1,'bogus','c','t')")
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert {"idx_reports_latest", "idx_reports_run"} <= names
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

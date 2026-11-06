@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-AGENTS = ("news", "macro", "outlook")
+AGENTS = ("news", "macro", "outlook", "fundamentals")
 
 
 def stock_key(stock: str | None) -> str | None:
@@ -38,6 +38,7 @@ class Report:
     created_at: datetime  # timezone-aware, UTC
     news_report_id: int | None
     macro_report_id: int | None
+    fundamentals_report_id: int | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Report":
@@ -53,6 +54,7 @@ class Report:
             created_at=datetime.fromisoformat(row["created_at"]),
             news_report_id=row["news_report_id"],
             macro_report_id=row["macro_report_id"],
+            fundamentals_report_id=row["fundamentals_report_id"],
         )
 
 
@@ -82,7 +84,7 @@ class Repository:
         self, run_id: int, agent: str, content_md: str, *, stock: str | None = None,
         truncated: bool = False, input_tokens: int | None = None, output_tokens: int | None = None,
         news_report_id: int | None = None, macro_report_id: int | None = None,
-        created_at: datetime | None = None,
+        fundamentals_report_id: int | None = None, created_at: datetime | None = None,
     ) -> int:
         if agent not in AGENTS:
             raise ValueError(f"unknown agent {agent!r}; expected one of {AGENTS}")
@@ -90,10 +92,12 @@ class Repository:
             raise ValueError(f"{agent} reports need a stock")
         cur = self.conn.execute(
             """INSERT INTO reports (run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
-                                    output_tokens, created_at, news_report_id, macro_report_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                                    output_tokens, created_at, news_report_id, macro_report_id,
+                                    fundamentals_report_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, agent, stock, stock_key(stock), content_md, int(truncated), input_tokens,
-             output_tokens, _iso(created_at or utcnow()), news_report_id, macro_report_id),
+             output_tokens, _iso(created_at or utcnow()), news_report_id, macro_report_id,
+             fundamentals_report_id),
         )
         return cur.lastrowid
 

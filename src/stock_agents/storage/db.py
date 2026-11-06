@@ -40,6 +40,33 @@ MIGRATIONS = [
     CREATE INDEX idx_reports_latest ON reports (agent, stock_key, created_at DESC);
     CREATE INDEX idx_reports_run ON reports (run_id);
     """,
+    # 2: fundamentals reports. SQLite cannot alter a CHECK constraint, so the table is rebuilt
+    # with 'fundamentals' allowed as an agent and a link from outlooks to the report they used.
+    """
+    CREATE TABLE reports_new (
+        id             INTEGER PRIMARY KEY,
+        run_id         INTEGER NOT NULL REFERENCES runs(id),
+        agent          TEXT NOT NULL CHECK (agent IN ('news', 'macro', 'outlook', 'fundamentals')),
+        stock          TEXT,
+        stock_key      TEXT,
+        content_md     TEXT NOT NULL,
+        truncated      INTEGER NOT NULL DEFAULT 0,
+        input_tokens   INTEGER,
+        output_tokens  INTEGER,
+        created_at     TEXT NOT NULL,
+        news_report_id         INTEGER REFERENCES reports(id),
+        macro_report_id        INTEGER REFERENCES reports(id),
+        fundamentals_report_id INTEGER REFERENCES reports(id)
+    );
+    INSERT INTO reports_new (id, run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
+                             output_tokens, created_at, news_report_id, macro_report_id)
+        SELECT id, run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
+               output_tokens, created_at, news_report_id, macro_report_id FROM reports;
+    DROP TABLE reports;
+    ALTER TABLE reports_new RENAME TO reports;
+    CREATE INDEX idx_reports_latest ON reports (agent, stock_key, created_at DESC);
+    CREATE INDEX idx_reports_run ON reports (run_id);
+    """,
 ]
 
 
@@ -55,13 +82,26 @@ def migrate(conn: sqlite3.Connection) -> int:
             f"Database schema v{version} is newer than this program supports (v{len(MIGRATIONS)}); "
             "upgrade stock-analyst."
         )
-    for number, sql in enumerate(MIGRATIONS[version:], start=version + 1):
-        try:
-            conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {number};\nCOMMIT;")
-        except sqlite3.Error:
-            if conn.in_transaction:
-                conn.execute("ROLLBACK")
-            raise
+    if version == len(MIGRATIONS):
+        return version
+    # Rebuilding a table (drop + rename) trips foreign keys that point at it, and PRAGMA foreign_keys
+    # is ignored inside a transaction. So switch them off around the migrations (as the SQLite docs
+    # advise) and verify the result afterwards.
+    foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        for number, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+            try:
+                conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {number};\nCOMMIT;")
+            except sqlite3.Error:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if broken:
+                raise sqlite3.IntegrityError(f"migration {number} left {len(broken)} broken foreign key(s)")
+    finally:
+        conn.execute(f"PRAGMA foreign_keys = {'ON' if foreign_keys else 'OFF'}")
     return len(MIGRATIONS)
 
 

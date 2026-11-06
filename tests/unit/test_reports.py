@@ -80,3 +80,14 @@ def test_import_is_idempotent(repo, tmp_path):
     import_reports(repo, tmp_path / "old")
     assert import_reports(repo, tmp_path / "old") == (0, 6)
     assert len(repo.list(limit=50)) == 5
+
+
+def test_fundamentals_reports_render_export_and_import(repo, tmp_path):
+    report = make(repo, "fundamentals", "TCS", "F BODY")
+    assert render_markdown(report).startswith("# Fundamentals report: TCS")
+    path = export_report(report, tmp_path)
+    assert path.name.startswith("tcs_fundamentals_")
+    other = Repository(connect(":memory:"))
+    assert import_reports(other, tmp_path) == (1, 0)
+    (imported,) = other.list()
+    assert (imported.agent, imported.stock, imported.content_md) == ("fundamentals", "TCS", "F BODY")

@@ -22,8 +22,11 @@ def calls(*tool_calls):
     )
 
 
-def llm_with(news, macro, outlook):
-    return AgentScriptedModel(scripts={"news": news, "macro": macro, "outlook": outlook}, seen=[])
+def llm_with(news, macro, outlook, fundamentals=None):
+    fundamentals = fundamentals if fundamentals is not None else [AIMessage(content="FUNDAMENTALS")]
+    return AgentScriptedModel(
+        scripts={"news": news, "macro": macro, "outlook": outlook, "fundamentals": fundamentals}, seen=[]
+    )
 
 
 @respx.mock
@@ -49,6 +52,7 @@ def test_all_agents_fetch_read_and_report():
     assert result["news_report"] == "TCS: mixed-to-positive."
     assert result["macro_report"] == "Macro: mixed."
     assert result["outlook_report"] == "Outlook: neutral short term, positive long term."
+    assert result["fundamentals_report"].endswith("FUNDAMENTALS")
     # agents run in parallel, so request order across them is not guaranteed
     queries = sorted(c.request.url.params["q"] for c in search.calls)
     assert queries == sorted(["TCS shares", "crude oil prices", "RBI repo rate"])
@@ -67,6 +71,7 @@ def test_all_agents_fetch_read_and_report():
     # outlook agent saw both reports
     outlook_input = llm.messages_for("outlook")[0][1].content
     assert "TCS: mixed-to-positive." in outlook_input and "Macro: mixed." in outlook_input
+    assert "FUNDAMENTALS" in outlook_input and "Tata Consultancy Services Ltd" in outlook_input
 
 
 @respx.mock
@@ -144,9 +149,10 @@ def test_cli_end_to_end_stores_everything_in_the_database(tmp_path, monkeypatch)
     run_row = conn.execute("SELECT * FROM runs").fetchall()
     assert len(run_row) == 1
     assert (run_row[0]["status"], run_row[0]["model"], run_row[0]["max_tokens"]) == ("ok", "deepseek-flash", 500)
-    news, macro, outlook = (repo.latest(a, "TCS") for a in ("news", "macro", "outlook"))
+    news, macro, outlook, fund = (repo.latest(a, "TCS") for a in ("news", "macro", "outlook", "fundamentals"))
     assert (news.content_md, macro.content_md, outlook.content_md) == ("NEWS", "MACRO", "OUTLOOK")
-    assert (outlook.news_report_id, outlook.macro_report_id) == (news.id, macro.id)
+    assert fund.content_md.startswith("## Financial data:") and fund.content_md.endswith("FUNDAMENTALS")
+    assert (outlook.news_report_id, outlook.macro_report_id, outlook.fundamentals_report_id) == (news.id, macro.id, fund.id)
     assert (outlook.input_tokens, outlook.output_tokens) == (9, 4)
     assert macro.stock is None
 

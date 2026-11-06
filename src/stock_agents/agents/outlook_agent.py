@@ -12,7 +12,8 @@ from stock_agents.state import AgentState, WorkflowState
 NAME = "outlook_agent"
 
 SYSTEM_PROMPT = """You are an equity research analyst covering Indian listed companies (NSE/BSE).
-You are given a stock plus two research notes: recent company news, and the current macro environment.
+You are given a stock plus three research notes: recent company news, the current macro environment, and \\
+the company's quarterly financials (any of them may be marked not available).
 Form a reasoned outlook for (1) the industry sector the company belongs to and (2) the company itself.
 
 Time horizons - give a separate view for each:
@@ -26,8 +27,9 @@ Use exactly this structure:
   Then for each horizon: **Short term / Medium term / Long term** - stance (Positive / Neutral / Negative), \\
 confidence (Low / Medium / High), the main drivers, and the main risks.
   ## Company
-  Same format for each of the three horizons, tying each stance to specific points from the news and \\
-macro notes (cite the item you rely on).
+  Same format for each of the three horizons, tying each stance to specific points from the news, \\
+macro and fundamentals notes (cite the item you rely on; the quarterly trends in growth, margins and cash flow \\
+should anchor the short- and medium-term company view).
   ## Summary
   A short table or list of the six stances (sector x 3 horizons, company x 3 horizons) and one paragraph on \\
 how the macro backdrop interacts with the company's own story.
@@ -61,12 +63,13 @@ def build_task(state: WorkflowState) -> str:
         f"Stock: {state['stock']}\n\n"
         f"<news_report>\n{state.get('news_report') or MISSING}\n</news_report>\n\n"
         f"<macro_report>\n{state.get('macro_report') or MISSING}\n</macro_report>\n\n"
+        f"<fundamentals_report>\n{state.get('fundamentals_report') or MISSING}\n</fundamentals_report>\n\n"
         "Write the sector and company outlook."
     )
 
 
 def outlook_agent_node(llm: BaseChatModel):
-    """Workflow node: reads `stock`, `news_report`, `macro_report`; writes `outlook_report`."""
+    """Workflow node: reads `stock`, `news_report`, `macro_report`, `fundamentals_report`; writes `outlook_report`."""
     agent = build_outlook_agent(llm)
 
     def node(state: WorkflowState) -> dict:

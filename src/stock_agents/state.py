@@ -20,7 +20,11 @@ class WorkflowState(TypedDict, total=False):
     news_report: str
     macro_report: str
     outlook_report: str
+    fundamentals_report: str
+    # Set instead of a report when the financial data could not be fetched.
+    fundamentals_error: str
     # Per-agent run details (truncated flag, token usage); saved next to each report.
     news_meta: dict
     macro_meta: dict
     outlook_meta: dict
+    fundamentals_meta: dict

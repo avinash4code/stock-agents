@@ -3,7 +3,8 @@
     stock-analyst all TCS                 # whole workflow (same as `stock-analyst TCS`)
     stock-analyst news TCS                # news agent only
     stock-analyst macro                   # macro agent only (market-wide, no stock needed)
-    stock-analyst outlook TCS             # outlook agent only, on the latest stored news + macro reports
+    stock-analyst fundamentals TCS        # fundamentals agent only (quarterly results analysis)
+    stock-analyst outlook TCS             # outlook agent only, on the latest stored news + macro (+ fundamentals) reports
     stock-analyst reports list            # browse stored reports; also `reports show ID`, `reports export ID`
     stock-analyst import news_reports/    # one-time import of reports saved as files by older versions
 """
@@ -17,7 +18,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
-from stock_agents.agents import macro_agent, news_agent, outlook_agent
+from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
 from stock_agents.config import LLMConfig, db_path, reuse_hours
 from stock_agents.graph import run_workflow
 from stock_agents.llm import default_llm
@@ -25,7 +26,7 @@ from stock_agents.reports import DEFAULT_EXPORT_DIR, export_report, import_repor
 from stock_agents.storage import Report, Repository, connect
 from stock_agents.storage.repository import utcnow
 
-COMMANDS = {"all", "news", "macro", "outlook", "reports", "import"}
+COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import"}
 OPTIONS_WITH_VALUE = {"--db"}
 
 
@@ -91,26 +92,39 @@ def _reusable(repo: Repository, agent: str, stock: str | None, cli_hours: float 
 
 def cmd_all(args, conn, repo) -> None:
     cfg, llm = _llm()
-    for name in ("max_news_age", "max_macro_age"):
+    for name in ("max_news_age", "max_macro_age", "max_fundamentals_age"):
         if (getattr(args, name) or 0) < 0:
             raise SystemExit(f"--{name.replace('_', '-')} must be >= 0")
     news_old = _reusable(repo, "news", args.stock, args.max_news_age)
     macro_old = _reusable(repo, "macro", None, args.max_macro_age)
+    fund_old = _reusable(repo, "fundamentals", args.stock, args.max_fundamentals_age)
     with tracked_run(conn, "all", args.stock, cfg) as run_id:
         result = run_workflow(
             args.stock, llm,
             news_report=news_old.content_md if news_old else None,
             macro_report=macro_old.content_md if macro_old else None,
+            fundamentals_report=fund_old.content_md if fund_old else None,
         )
         with conn:
             news_id = news_old.id if news_old else _save(
                 repo, run_id, "news", args.stock, result["news_report"], result.get("news_meta"))
             macro_id = macro_old.id if macro_old else _save(
                 repo, run_id, "macro", None, result["macro_report"], result.get("macro_meta"))
+            fund_id = None
+            if fund_old:
+                fund_id = fund_old.id
+            elif result.get("fundamentals_report"):
+                fund_id = _save(repo, run_id, "fundamentals", args.stock, result["fundamentals_report"],
+                                result.get("fundamentals_meta"))
+            else:  # data unavailable: the outlook still runs, without it
+                print(f"Warning: no fundamentals report - {result.get('fundamentals_error', 'unknown error')}",
+                      file=sys.stderr)
             _save(repo, run_id, "outlook", args.stock, result["outlook_report"], result.get("outlook_meta"),
-                  news_report_id=news_id, macro_report_id=macro_id)
+                  news_report_id=news_id, macro_report_id=macro_id, fundamentals_report_id=fund_id)
     _show(f"Stock news: {args.stock}", result["news_report"])
     _show("Macro environment", result["macro_report"])
+    if result.get("fundamentals_report"):
+        _show(f"Fundamentals: {args.stock}", result["fundamentals_report"])
     _show("Outlook", result["outlook_report"])
 
 
@@ -132,17 +146,44 @@ def cmd_macro(args, conn, repo) -> None:
     _show("Macro environment", state["macro_report"])
 
 
+def cmd_fundamentals(args, conn, repo) -> None:
+    cfg, llm = _llm()
+    with tracked_run(conn, "fundamentals", args.stock, cfg) as run_id:
+        state = fundamentals_agent.fundamentals_agent_node(llm)({"stock": args.stock})
+        if "fundamentals_report" not in state:
+            raise SystemExit(f"Cannot run fundamentals: {state['fundamentals_error']}.")
+        with conn:
+            _save(repo, run_id, "fundamentals", args.stock, state["fundamentals_report"], state.get("fundamentals_meta"))
+    _show(f"Fundamentals: {args.stock}", state["fundamentals_report"])
+
+
+def _pick_fundamentals(repo: Repository, report_id: int | None, stock: str) -> Report | None:
+    """Fundamentals are optional for the outlook: an explicit --fundamentals-id must exist, the default may be absent."""
+    if report_id:
+        return _pick(repo, report_id, "fundamentals", stock, "fundamentals")
+    report = repo.latest("fundamentals", stock)
+    if report is None:
+        print(f"No stored fundamentals report for {stock}; the outlook will run without it "
+              f"(run `stock-analyst fundamentals {stock}` first to include it).", file=sys.stderr)
+        return None
+    print(f"Using fundamentals report #{report.id} from {report.created_at.astimezone():%Y-%m-%d %H:%M}", file=sys.stderr)
+    return report
+
+
 def cmd_outlook(args, conn, repo) -> None:
     news = _pick(repo, args.news_id, "news", args.stock, "news")
     macro = _pick(repo, args.macro_id, "macro", None, "macro")
+    fund = _pick_fundamentals(repo, args.fundamentals_id, args.stock)
     cfg, llm = _llm()
     with tracked_run(conn, "outlook", args.stock, cfg) as run_id:
         state = outlook_agent.outlook_agent_node(llm)(
-            {"stock": args.stock, "news_report": news.content_md, "macro_report": macro.content_md}
+            {"stock": args.stock, "news_report": news.content_md, "macro_report": macro.content_md,
+             "fundamentals_report": fund.content_md if fund else ""}
         )
         with conn:
             _save(repo, run_id, "outlook", args.stock, state["outlook_report"], state.get("outlook_meta"),
-                  news_report_id=news.id, macro_report_id=macro.id)
+                  news_report_id=news.id, macro_report_id=macro.id,
+                  fundamentals_report_id=fund.id if fund else None)
     _show("Outlook", state["outlook_report"])
 
 
@@ -176,7 +217,7 @@ def cmd_import(args, conn, repo) -> None:
     print(f"Imported {imported} report(s); skipped {skipped} (already stored or not a report file).")
 
 
-HANDLERS = {"all": cmd_all, "news": cmd_news, "macro": cmd_macro, "outlook": cmd_outlook,
+HANDLERS = {"all": cmd_all, "news": cmd_news, "macro": cmd_macro, "fundamentals": cmd_fundamentals, "outlook": cmd_outlook,
             "reports": cmd_reports, "import": cmd_import}
 
 
@@ -200,17 +241,25 @@ def build_parser() -> argparse.ArgumentParser:
                         "(default: STOCK_ANALYST_NEWS_MAX_AGE_HOURS or 6; 0 = always re-run)")
     p.add_argument("--max-macro-age", type=float, metavar="HOURS",
                    help="same for the macro report (default: STOCK_ANALYST_MACRO_MAX_AGE_HOURS or 6; 0 = always re-run)")
+    p.add_argument("--max-fundamentals-age", type=float, metavar="HOURS",
+                   help="same for the fundamentals report "
+                        "(default: STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS or 168, one week; 0 = always re-run)")
     sub.add_parser("news", help="run only the news agent", parents=[common]).add_argument("stock", help=stock_help)
     sub.add_parser("macro", help="run only the macro agent", parents=[common])
-    p = sub.add_parser("outlook", help="run only the outlook agent on stored news + macro reports", parents=[common])
+    sub.add_parser("fundamentals", help="run only the fundamentals agent (quarterly results)",
+                   parents=[common]).add_argument("stock", help=stock_help)
+    p = sub.add_parser("outlook", help="run only the outlook agent on stored news + macro (+ fundamentals) reports",
+                       parents=[common])
     p.add_argument("stock", help=stock_help)
     p.add_argument("--news-id", type=int, help="news report to use (default: latest for this stock)")
     p.add_argument("--macro-id", type=int, help="macro report to use (default: latest)")
+    p.add_argument("--fundamentals-id", type=int,
+                   help="fundamentals report to use (default: latest for this stock, if any)")
 
     reports = sub.add_parser("reports", help="browse and export stored reports", parents=[common])
     rsub = reports.add_subparsers(dest="reports_command", required=True)
     p = rsub.add_parser("list", help="list stored reports, newest first", parents=[common])
-    p.add_argument("--agent", choices=["news", "macro", "outlook"])
+    p.add_argument("--agent", choices=["news", "macro", "fundamentals", "outlook"])
     p.add_argument("--stock")
     p.add_argument("--limit", type=int, default=20)
     rsub.add_parser("show", help="print one report", parents=[common]).add_argument("id", type=int)
