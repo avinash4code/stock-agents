@@ -49,14 +49,18 @@ profit, capex and free cash flow, over the annual years shown.
   ## Shareholding
   Direction of promoter, FII, DII and public holdings over the last 4 and 8 quarters, and what the change suggests \
 (for example promoter selling, or institutions accumulating). Note the number of shareholders.
+  ## Versus peers
+  Where the company stands among its listed peers on valuation (P/E), growth (latest-quarter sales and profit \
+variation), profitability (ROCE) and dividend yield, using the peer table and the position lines. Say whether any \
+premium or discount looks justified by growth and returns. If there is no peer table, say that.
   ## Red flags and strengths
   Two short bullet lists. Only include items the numbers support (profit rising while operating cash flow falls, \
 rising debt, falling promoter holding, a one-off quarter, ...).
   ## Watch next quarter
   Two or three specific metrics to check in the next result, with the level that would change the view.
   ## Data limits
-  What was missing or unreliable (n/a rows, short history, consolidated vs standalone, seasonality, no peer or \
-valuation comparison).
+  What was missing or unreliable (n/a rows, short history, consolidated vs standalone, seasonality, how few peers are \
+shown, no historical valuation).
 
 Rules: amounts are INR crore; say so when you quote one. "n/a" means unavailable or not meaningful, not zero. \
 The header says whether the figures are consolidated or standalone: standalone figures leave out subsidiaries, so \
@@ -64,7 +68,9 @@ say that they may understate or misstate the group. Balance sheet, cash flow and
 the latest balance-sheet column may be a half-year), so do not call them quarterly. For banks, NBFCs and \
 insurers (the header says so), EBITDA-style rows, "Operating Profit" / "Financing Profit", margins on them and \
 borrowings against net worth are not meaningful: say so and rely on revenue, net profit, EPS, net worth, \
-deposits, asset quality rows if filled, and shareholding. The "Key ratios" line is a snapshot at the fetch date \
+deposits, asset quality rows if filled, and shareholding. The peer table is Screener's own industry grouping: only a handful of companies are listed, the median row \
+covers a wider group, and its "Qtr Profit Var %" / "Qtr Sales Var %" can differ from the growth in the tables above, \
+so use it for relative standing only and take the company's own growth from its quarterly table. The "Key ratios" line is a snapshot at the fetch date \
 and may be out of date; use it for context only. Screener's own pros/cons are generated hints: use them as leads, \
 never as evidence on their own. Do not give buy/sell/hold recommendations or price targets. This is an analysis of \
 reported numbers, not investment advice."""

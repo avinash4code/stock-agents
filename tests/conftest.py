@@ -93,10 +93,16 @@ def fixture_html(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
-def sample_financials(name: str = "screener_tcs.html"):
-    from stock_agents.screener import parse_company_page
+def sample_financials(name: str = "screener_tcs.html", peers: bool = True):
+    """A parsed fixture page; the TCS one also gets the peer table (TCS is a row in it)."""
+    from dataclasses import replace
 
-    return parse_company_page(fixture_html(name), PAGES[name], today=FETCHED)
+    from stock_agents.screener import parse_company_page, parse_peers
+
+    fin = parse_company_page(fixture_html(name), PAGES[name], today=FETCHED)
+    if peers and name == "screener_tcs.html":
+        fin = replace(fin, peers=parse_peers(fixture_html("screener_peers_infy.html")))
+    return fin
 
 
 @pytest.fixture(autouse=True)

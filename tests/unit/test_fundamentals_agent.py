@@ -17,7 +17,7 @@ def test_named():
 
 def test_prompt_sections_and_guardrails():
     p = SYSTEM_PROMPT.lower()
-    for needle in ["## verdict", "## growth", "## profitability", "## balance sheet and cash flow", "## shareholding",
+    for needle in ["## verdict", "## growth", "## profitability", "## balance sheet and cash flow", "## shareholding", "## versus peers",
                    "## red flags and strengths", "## watch next quarter", "## data limits",
                    "do not recalculate", "banks, nbfcs", "consolidated or standalone", "annual",
                    "generated hints", "do not give buy/sell/hold", "not investment advice"]:
@@ -34,7 +34,7 @@ def test_task_contains_the_stock_and_the_financial_tables():
     task = build_task("TCS", sample_financials())
     assert "Stock: TCS" in task and "<company_financials>" in task
     for needle in ["### Quarterly results", "### Annual profit and loss", "### Balance sheet (annual)",
-                   "### Cash flow (annual)", "### Shareholding", "| Sales |", "Sales YoY %"]:
+                   "### Cash flow (annual)", "### Shareholding", "### Peer comparison", "| Sales |", "Sales YoY %"]:
         assert needle in task, needle
 
 

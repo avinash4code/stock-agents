@@ -65,6 +65,31 @@ EMPTY = Table(periods=[])
 
 
 @dataclass(frozen=True)
+class Peer:
+    name: str
+    symbol: str
+    company_id: str  # Screener's id, used to tell which row is the company itself
+    values: list[float | None]  # aligned with `PeerComparison.columns`
+
+
+@dataclass(frozen=True)
+class PeerComparison:
+    """Screener's peer table: the company and the other companies in its industry, side by side."""
+
+    columns: list[str]  # e.g. "P/E", "Div Yld %", "ROCE %"
+    peers: list[Peer]
+    median_label: str  # e.g. "Median: 73 Co." - the median covers a wider group than the rows listed
+    median: list[float | None]
+
+    def column(self, *labels: str) -> int | None:
+        for wanted in labels:
+            for i, name in enumerate(self.columns):
+                if name.lower().startswith(wanted.lower()):
+                    return i
+        return None
+
+
+@dataclass(frozen=True)
 class CompanyFinancials:
     symbol: str  # Screener's slug, normally the NSE symbol
     name: str
@@ -82,16 +107,20 @@ class CompanyFinancials:
     growth: dict[str, dict[str, str]] = field(default_factory=dict)  # "Compounded Sales Growth" -> {"5 Years": "12%"}
     pros: list[str] = field(default_factory=list)  # Screener's own generated remarks
     cons: list[str] = field(default_factory=list)
+    company_id: str = ""
+    warehouse_id: str = ""  # id used by Screener's peer-table endpoint
+    classification: list[str] = field(default_factory=list)  # sector > industry, as Screener files the company
+    peers: PeerComparison | None = None  # fetched separately; None if unavailable
 
     @property
     def is_financial(self) -> bool:
         return self.kind == "financial"
 
 
-def fetch_fundamentals(stock: str, client=None, listings=None) -> CompanyFinancials:
+def fetch_fundamentals(stock: str, client=None, listings=None, sleep=None) -> CompanyFinancials:
     """Resolve a company name or symbol and download its Screener page (consolidated if available)."""
     from stock_agents.screener import fetch_company
     from stock_agents.symbols import load_listings, resolve_symbol
 
     symbol = resolve_symbol(stock, load_listings(client=client) if listings is None else listings)
-    return fetch_company(symbol, client=client)
+    return fetch_company(symbol, client=client, **({"sleep": sleep} if sleep else {}))

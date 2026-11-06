@@ -13,15 +13,18 @@ A LangGraph multi-agent system for analysing Indian stocks. Today it has four ag
 - `fundamentals_agent`: no tools. One Screener.in page per company is fetched (`screener.py`; the consolidated view, else
   standalone) and parsed into: 13 quarters of profit & loss, the annual profit & loss with a TTM column, annual balance
   sheet, cash flow and efficiency ratios (ROCE, debtor days, ...), the quarterly shareholding pattern (promoters / FIIs /
-  DIIs / public), key ratios and Screener's own pros/cons. All growth, margin, leverage, cash-conversion and
+  DIIs / public), Screener's peer comparison (the company and its industry peers on P/E, ROCE, dividend yield and
+  latest-quarter growth, plus the wider-group median, with the company's rank computed in code), key ratios and
+  Screener's own pros/cons. All growth, margin, leverage, cash-conversion and
   shareholding-change maths is done in code (`metrics.py`); the model only interprets the tables (growth, profitability,
   balance sheet and cash flow, shareholding, red flags, what to watch). The stored report is the data tables followed by
   the analysis, so you can check every number. If Screener cannot be reached the workflow carries on without it.
   Names are resolved to symbols locally from NSE's official list of listed equities (`symbols.py`, cached as
   `nse_equities.csv` next to the database, refreshed monthly), because Screener's search endpoint is disallowed for
   automated clients by its robots.txt. Banks and NBFCs have different rows and are flagged; balance sheet, cash flow and
-  ratios are annual only (Screener does not publish them quarterly). Scraping is for personal use: one request per
-  company, an identifying User-Agent, no login. Check Screener's terms before relying on it.
+  ratios are annual only (Screener does not publish them quarterly). Scraping is for personal use: two requests per
+  company (the page, then the peer table that the page itself loads with JavaScript from `/api/company/<id>/peers/`; if
+  that one fails the report simply has no peer section and it is not retried), an identifying User-Agent, no login. Check Screener's terms before relying on it.
 
 - `outlook_agent`: no tools; reads the three reports and gives a sector view and a company view for the short (<=3 months),
   medium (3-12 months) and long (>1 year) term, with stance, confidence, drivers, risks and stated assumptions.

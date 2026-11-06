@@ -9,17 +9,19 @@ from __future__ import annotations
 import logging
 import re
 import time
+from dataclasses import replace
 from datetime import date
 from urllib.parse import quote
 
 import httpx
 from lxml import html
 
-from stock_agents.fundamentals import EMPTY, CompanyFinancials, FundamentalsError, Table
+from stock_agents.fundamentals import EMPTY, CompanyFinancials, FundamentalsError, Peer, PeerComparison, Table
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.screener.in/company"
+PEERS_URL = "https://www.screener.in/api/company/{warehouse_id}/peers/"  # what the page itself loads into its peer table
 USER_AGENT = "Mozilla/5.0 (compatible; stock-agents/0.1; personal research tool)"
 TIMEOUT = 20.0
 REQUEST_GAP = 1.5  # seconds between our requests to Screener
@@ -29,14 +31,14 @@ SKIP_LABELS = {"raw pdf"}
 
 # -- fetching -----------------------------------------------------------------------------------
 
-def _get(client: httpx.Client, url: str, sleep) -> httpx.Response:
-    """GET with one retry when throttled (429) or on a server error (5xx)."""
+def _get(client: httpx.Client, url: str, sleep, retry: bool = True) -> httpx.Response:
+    """GET with one retry when throttled (429) or on a server error (5xx), unless `retry` is off."""
     for attempt in (1, 2):
         try:
             response = client.get(url)
         except httpx.HTTPError as exc:
             raise FundamentalsError(f"could not reach Screener ({type(exc).__name__}: {exc})") from exc
-        if response.status_code in (429, 500, 502, 503, 504) and attempt == 1:
+        if response.status_code in (429, 500, 502, 503, 504) and attempt == 1 and retry:
             try:
                 wait = float(response.headers.get("Retry-After", "5"))
             except ValueError:
@@ -67,13 +69,29 @@ def fetch_company(symbol: str, client: httpx.Client | None = None, sleep=time.sl
                 )
             if response.status_code != 200:
                 raise FundamentalsError(f"Screener returned HTTP {response.status_code} for {symbol!r}")
-            return parse_company_page(response.text, str(response.url), today=today)
+            return _with_peers(client, parse_company_page(response.text, str(response.url), today=today), sleep)
         raise FundamentalsError(
             f"Screener has no company page for {symbol!r}; check the symbol (use the NSE symbol, e.g. 'INFY')"
         )
     finally:
         if owns_client:
             client.close()
+
+
+def _with_peers(client: httpx.Client, fin: CompanyFinancials, sleep) -> CompanyFinancials:
+    """Add the peer table. It is a second, supplementary request: any failure just leaves `peers` as None,
+    and a throttled or refused request is not retried."""
+    if not fin.warehouse_id:
+        return fin
+    sleep(REQUEST_GAP)
+    try:
+        response = _get(client, PEERS_URL.format(warehouse_id=fin.warehouse_id), sleep, retry=False)
+        if response.status_code != 200:
+            raise FundamentalsError(f"HTTP {response.status_code}")
+        return replace(fin, peers=parse_peers(response.text))
+    except FundamentalsError as exc:
+        logger.warning("Peer comparison unavailable for %s: %s", fin.symbol, exc)
+        return fin
 
 
 # -- parsing ------------------------------------------------------------------------------------
@@ -168,6 +186,44 @@ def _remarks(root, kind: str) -> list[str]:
     return [_clean(li.text_content()) for li in root.xpath(f"//div[@class='{kind}']//li")]
 
 
+def parse_peers(fragment: str) -> PeerComparison:
+    """Screener's peer table (an HTML fragment): one row per company plus a median row."""
+    root = html.fromstring(fragment)
+    tables = root.xpath("//table[.//th]")
+    if not tables:
+        raise FundamentalsError("Screener page layout changed: no peer table found")
+    header = [_clean(th.text_content()) for th in tables[0].xpath(".//tr[1]/th")]
+    if len(header) < 3 or header[1].lower() != "company":
+        raise FundamentalsError("Screener page layout changed: unexpected peer table columns")
+    columns = header[2:]
+    peers, median_label, median = [], "", []
+    for tr in tables[0].xpath(".//tr[td]"):
+        cells = tr.xpath("./td")
+        if len(cells) != len(header):
+            raise FundamentalsError(f"Screener page layout changed: peer row has {len(cells)} cells for {len(header)} columns")
+        name = _clean(cells[1].text_content())
+        values = [parse_number(_clean(c.text_content())) for c in cells[2:]]
+        if name.lower().startswith("median"):
+            median_label, median = name, values
+            continue
+        href = cells[1].xpath("string(.//a/@href)")
+        match = re.search(r"/company/([^/?#]+)", href)
+        peers.append(Peer(name=name, symbol=match.group(1) if match else "", company_id=tr.get("data-row-company-id", ""), values=values))
+    if not peers:
+        raise FundamentalsError("Screener page layout changed: the peer table has no companies")
+    return PeerComparison(columns=columns, peers=peers, median_label=median_label, median=median)
+
+
+def _classification(root) -> list[str]:
+    """Sector > industry as Screener files the company (the links under 'Peer comparison'), without repeats."""
+    names: list[str] = []
+    for link in root.xpath("//section[@id='peers']//p[contains(@class,'sub')][1]//a[@title]"):
+        name = _clean(link.text_content())
+        if name and (not names or names[-1] != name):
+            names.append(name)
+    return names
+
+
 def _symbol_from(url: str, root) -> str:
     for candidate in (root.xpath("string(//link[@rel='canonical']/@href)"), url):
         match = re.search(r"/company/([^/?#]+)", candidate)
@@ -209,4 +265,7 @@ def parse_company_page(page: str, url: str = "", today: date | None = None) -> C
         growth=_growth(root),
         pros=_remarks(root, "pros"),
         cons=_remarks(root, "cons"),
+        company_id=root.xpath("string(//*[@id='company-info']/@data-company-id)"),
+        warehouse_id=root.xpath("string(//*[@id='company-info']/@data-warehouse-id)"),
+        classification=_classification(root),
     )

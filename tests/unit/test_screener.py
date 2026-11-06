@@ -7,7 +7,7 @@ from lxml import html
 
 from stock_agents import screener
 from stock_agents.fundamentals import FundamentalsError
-from stock_agents.screener import fetch_company, parse_company_page, parse_number
+from stock_agents.screener import fetch_company, parse_company_page, parse_number, parse_peers
 from tests.conftest import FETCHED, PAGES, fixture_html, sample_financials
 
 def edited(page, change):
@@ -23,6 +23,13 @@ def _row(root, section, label):
 
 CONS = "https://www.screener.in/company/TCS/consolidated/"
 BARE = "https://www.screener.in/company/TCS/"
+PEERS = "https://www.screener.in/api/company/{}/peers/"
+TCS_WAREHOUSE, INFY_STANDALONE_WAREHOUSE = "6599230", "1143"
+
+
+def mock_peers(warehouse=TCS_WAREHOUSE, **response):
+    response = response or {"status_code": 200, "text": fixture_html("screener_peers_infy.html")}
+    return respx.get(PEERS.format(warehouse)).mock(return_value=httpx.Response(**response))
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -117,10 +124,14 @@ def slept():
 def test_fetch_prefers_the_consolidated_page_and_makes_one_request(slept):
     route = respx.get(CONS).mock(return_value=httpx.Response(200, text=fixture_html("screener_tcs.html")))
     bare = respx.get(BARE).mock(return_value=httpx.Response(200, text=""))
+    peers = mock_peers()
     fin = fetch_company("TCS", sleep=slept.append, today=FETCHED)
-    assert route.call_count == 1 and bare.call_count == 0 and slept == []
-    assert (fin.symbol, fin.basis) == ("TCS", "consolidated")
-    assert "stock-agents" in route.calls[0].request.headers["user-agent"]
+    assert route.call_count == 1 and bare.call_count == 0 and peers.call_count == 1
+    assert slept == [screener.REQUEST_GAP]  # one pause, before the peer request
+    assert (fin.symbol, fin.basis) == ("TCS", "consolidated") and fin.peers and len(fin.peers.peers) == 7
+    for call in (route.calls[0], peers.calls[0]):
+        headers = call.request.headers
+        assert "stock-agents" in headers["user-agent"] and "x-requested-with" not in headers and "referer" not in headers
 
 
 @respx.mock
@@ -129,9 +140,10 @@ def test_fetch_falls_back_to_the_standalone_page_after_a_pause(slept):
     respx.get("https://www.screener.in/company/INFY/consolidated/").mock(return_value=httpx.Response(404))
     bare = respx.get("https://www.screener.in/company/INFY/").mock(
         return_value=httpx.Response(200, text=fixture_html("screener_infy_standalone.html")))
+    mock_peers(INFY_STANDALONE_WAREHOUSE)
     fin = fetch_company("INFY", sleep=slept.append)
-    assert bare.call_count == 1 and slept == [screener.REQUEST_GAP]
-    assert fin.basis == "standalone"
+    assert bare.call_count == 1 and slept == [screener.REQUEST_GAP, screener.REQUEST_GAP]  # before the fallback, before the peers
+    assert fin.basis == "standalone" and fin.peers
 
 
 @respx.mock
@@ -157,8 +169,9 @@ def test_throttling_is_retried_once_after_retry_after(slept):
         httpx.Response(429, headers={"Retry-After": "7"}),
         httpx.Response(200, text=fixture_html("screener_tcs.html")),
     ])
+    mock_peers()
     assert fetch_company("TCS", sleep=slept.append).symbol == "TCS"
-    assert route.call_count == 2 and slept == [7.0]
+    assert route.call_count == 2 and slept == [7.0, screener.REQUEST_GAP]
 
 
 @respx.mock
@@ -183,8 +196,69 @@ def test_server_errors_and_network_failures_are_wrapped(slept):
 def test_symbols_with_special_characters_are_url_safe(slept):
     route = respx.get("https://www.screener.in/company/M&M/consolidated/").mock(
         return_value=httpx.Response(200, text=fixture_html("screener_tcs.html")))
+    mock_peers()
     fetch_company("M&M", sleep=slept.append)
     assert route.call_count == 1
+
+
+# -- peers ----------------------------------------------------------------------------------------
+
+def test_page_identifiers_and_classification_are_parsed():
+    fin = sample_financials("screener_tcs.html", peers=False)
+    assert (fin.company_id, fin.warehouse_id) == ("3365", TCS_WAREHOUSE) and fin.peers is None
+    assert fin.classification == ["Information Technology", "IT - Software", "Computers - Software & Consulting"]  # repeats dropped
+
+
+def test_parse_peers():
+    pc = parse_peers(fixture_html("screener_peers_infy.html"))
+    assert pc.columns[:3] == ["CMP Rs.", "P/E", "Mar Cap Rs.Cr."] and pc.columns[-1] == "ROCE %"
+    assert [p.symbol for p in pc.peers][:3] == ["TCS", "INFY", "HCLTECH"] and len(pc.peers) == 7
+    tcs = pc.peers[0]
+    assert (tcs.name, tcs.company_id) == ("TCS", "3365")
+    assert tcs.values[pc.column("P/E")] == 16.56 and tcs.values[pc.column("ROCE")] == 63.03
+    assert pc.median_label == "Median: 73 Co." and pc.median[pc.column("P/E")] == 18.56 and len(pc.median) == len(pc.columns)
+    assert pc.column("Qtr Sales Var") is not None and pc.column("Nonexistent") is None
+
+
+@pytest.mark.parametrize("fragment, message", [
+    ("<div>nothing here</div>", "no peer table"),
+    ("<table><tr><th>A</th><th>B</th><th>C</th></tr><tr><td>1</td><td>x</td><td>2</td></tr></table>", "unexpected peer table columns"),
+    ("<table><tr><th>S.No.</th><th>Company</th><th>P/E</th></tr><tr><td>1.</td><td>TCS</td></tr></table>", "peer row has 2 cells for 3 columns"),
+    ("<table><tr><th>S.No.</th><th>Company</th><th>P/E</th></tr><tr><td></td><td>Median: 3 Co.</td><td>9</td></tr></table>", "no companies"),
+])
+def test_unrecognised_peer_tables_are_layout_errors(fragment, message):
+    with pytest.raises(FundamentalsError, match=message):
+        parse_peers(fragment)
+
+
+@respx.mock
+@pytest.mark.parametrize("peer_response", [
+    {"status_code": 403}, {"status_code": 429, "headers": {"Retry-After": "5"}}, {"status_code": 500}, {"status_code": 404},
+    {"status_code": 200, "text": "<p>Loading</p>"},  # a layout we do not know
+])
+def test_a_failing_peer_request_leaves_the_rest_intact_and_is_never_retried(peer_response, slept, caplog):
+    respx.get(CONS).mock(return_value=httpx.Response(200, text=fixture_html("screener_tcs.html")))
+    peers = mock_peers(**peer_response)
+    with caplog.at_level("WARNING"):
+        fin = fetch_company("TCS", sleep=slept.append)
+    assert fin.peers is None and fin.quarterly and fin.symbol == "TCS"
+    assert peers.call_count == 1 and slept == [screener.REQUEST_GAP]  # no retry, no extra pause
+    assert "Peer comparison unavailable for TCS" in caplog.text
+
+
+@respx.mock
+def test_a_network_error_on_the_peer_request_is_not_fatal(slept):
+    respx.get(CONS).mock(return_value=httpx.Response(200, text=fixture_html("screener_tcs.html")))
+    respx.get(PEERS.format(TCS_WAREHOUSE)).mock(side_effect=httpx.ConnectError("offline"))
+    assert fetch_company("TCS", sleep=slept.append).peers is None
+
+
+@respx.mock
+def test_no_peer_request_without_a_warehouse_id(slept):
+    page = fixture_html("screener_tcs.html").replace(f'data-warehouse-id="{TCS_WAREHOUSE}"', "")
+    respx.get(CONS).mock(return_value=httpx.Response(200, text=page))  # no peers route: any peer request would fail the test
+    fin = fetch_company("TCS", sleep=slept.append)
+    assert fin.peers is None and slept == []
 
 
 @pytest.mark.live
@@ -192,3 +266,4 @@ def test_live_screener_page_parses_and_has_recent_quarters():
     fin = fetch_company("TCS")
     assert fin.basis == "consolidated" and len(fin.quarterly.periods) >= 8
     assert fin.quarterly.values("Sales")[-1] and fin.shareholding.values("Promoters")
+    assert fin.peers and any(p.company_id == fin.company_id for p in fin.peers.peers)

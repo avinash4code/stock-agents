@@ -2,10 +2,10 @@ from dataclasses import replace
 
 import pytest
 
-from stock_agents.fundamentals import EMPTY, CompanyFinancials, Table
+from stock_agents.fundamentals import EMPTY, CompanyFinancials, Peer, PeerComparison, Table
 from stock_agents.metrics import (
     annual_derived, balance_derived, cash_flow_derived, fmt_value, pct_change, quarter_before, quarterly_derived,
-    ratio, render_data_section, render_table, shareholding_changes, ttm_summary, year_before,
+    peer_position, ratio, render_data_section, render_peers, render_table, shareholding_changes, ttm_summary, year_before,
 )
 from tests.conftest import FETCHED, sample_financials
 
@@ -159,7 +159,7 @@ def test_the_data_section_for_a_company():
     assert text.startswith("## Financial data: Tata Consultancy Services Ltd")
     assert "**consolidated** figures; non-financial company; amounts in INR crore; fetched 06 Nov 2026" in text
     for heading in ["### Quarterly results", "### Annual profit and loss", "### Balance sheet (annual)", "### Cash flow (annual)",
-                    "### Efficiency ratios (annual)", "### Shareholding (% held, quarterly)", "### Long-run growth",
+                    "### Efficiency ratios (annual)", "### Shareholding (% held, quarterly)", "### Peer comparison", "### Long-run growth",
                     "### Screener's own remarks"]:
         assert heading in text, heading
     assert "| Sales | 62,613 |" in text and text.count("| Quarter |") == 2  # 10 quarters shown, not all 13; shareholding too
@@ -180,3 +180,45 @@ def test_the_data_section_flags_standalone_and_financial_companies():
 def test_sparse_companies_render_without_errors():
     text = render_data_section(make({"Sales": [1.0, 2.0], "Net Profit": [0.5, 1.0]}, periods=["Jun 2026", "Sep 2026"]))
     assert "### Quarterly results" in text and "### Balance sheet" not in text and "### Shareholding" not in text
+
+
+PEERS = PeerComparison(
+    columns=["CMP Rs.", "P/E", "Mar Cap Rs.Cr.", "ROCE %"],
+    peers=[Peer("Alpha", "ALPHA", "1", [100.0, 10.0, 5000.0, 30.0]), Peer("Beta", "BETA", "2", [200.0, 30.0, 9000.0, 20.0]),
+           Peer("Gamma", "GAMMA", "3", [50.0, None, 700.0, 25.0]), Peer("Delta", "DELTA", "4", [10.0, 20.0, 300.0, None])],
+    median_label="Median: 40 Co.", median=[80.0, 18.0, 450.0, 22.0])
+
+
+def with_peers(company_id="1", peers=PEERS):
+    return make({"Sales": [1.0], "Net Profit": [1.0]}, periods=["Sep 2026"], company_id=company_id, peers=peers,
+                classification=["Tech", "Software"])
+
+
+def test_peer_position_ranks_the_company_among_the_listed_peers():
+    assert peer_position(with_peers("1")) == [  # Alpha: P/E 10 is lowest of the three that have one; ROCE 30 is highest
+        "- P/E: 10.00; Median: 40 Co. 18.00; rank 3 of 3 listed (1 = highest)",
+        "- ROCE %: 30.00; Median: 40 Co. 22.00; rank 1 of 3 listed (1 = highest)",
+    ]
+    assert peer_position(with_peers("2"))[0].startswith("- P/E: 30.00") and "rank 1 of 3" in peer_position(with_peers("2"))[0]
+
+
+def test_no_position_when_the_company_is_not_in_the_table_or_there_are_no_peers():
+    assert peer_position(with_peers("999")) == [] and peer_position(with_peers(peers=None)) == []
+    assert peer_position(make({"Sales": [1.0], "Net Profit": [1.0]}, periods=["Sep 2026"], peers=PEERS)) == []  # no company id
+
+
+def test_peer_table_marks_the_company_and_formats_columns():
+    text = render_peers(with_peers("2"))
+    assert text.startswith("### Peer comparison\n_Screener's peer table at fetch time (Tech > Software).")
+    assert "| Beta (this company) | 200.00 | 30.00 | 9,000 | 20.00 |" in text  # market cap whole numbers, ratios 2 dp
+    assert "| Gamma | 50.00 | n/a | 700 | 25.00 |" in text and "| Median: 40 Co. | 80.00 | 18.00 | 450 | 22.00 |" in text
+    assert "(this company)" not in render_peers(with_peers("999")) and "Position among" not in render_peers(with_peers("999"))
+    assert "Position among the listed peers:" in text
+    assert render_peers(with_peers(peers=None)) == ""
+
+
+def test_the_data_section_includes_the_peer_table_only_when_there_is_one():
+    assert "### Peer comparison" in render_data_section(sample_financials())
+    assert "### Peer comparison" not in render_data_section(sample_financials(peers=False))
+    text = render_data_section(sample_financials())
+    assert "| TCS (this company) | 2,498.50 | 16.56 |" in text and "- ROCE %: 63.03; Median: 73 Co. 22.12; rank 1 of 7 listed" in text

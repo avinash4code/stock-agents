@@ -38,10 +38,12 @@ def test_empty_tables_are_falsy():
 def test_fetch_fundamentals_resolves_the_name_then_fetches_the_page():
     route = respx.get("https://www.screener.in/company/TCS/consolidated/").mock(
         return_value=httpx.Response(200, text=fixture_html("screener_tcs.html")))
+    peers = respx.get("https://www.screener.in/api/company/6599230/peers/").mock(
+        return_value=httpx.Response(200, text=fixture_html("screener_peers_infy.html")))
     with httpx.Client() as client:
-        fin = fetch_fundamentals("Tata Consultancy Services", client=client,
+        fin = fetch_fundamentals("Tata Consultancy Services", client=client, sleep=lambda seconds: None,
                                  listings=[Listing("TCS", "Tata Consultancy Services Limited")])
-    assert route.call_count == 1 and fin.symbol == "TCS"
+    assert route.call_count == 1 and peers.call_count == 1 and fin.symbol == "TCS" and fin.peers
 
 
 def test_fetch_fundamentals_reports_unresolvable_names_without_a_request():

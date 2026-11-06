@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
-from stock_agents.fundamentals import SOURCE, CompanyFinancials, Table
+from stock_agents.fundamentals import SOURCE, CompanyFinancials, PeerComparison, Table
 
 NA = "n/a"
 QUARTERS_SHOWN = 10
@@ -208,6 +208,54 @@ def render_table(title: str, table: Table) -> str:
     return "\n".join(lines)
 
 
+POSITION_COLUMNS = ("P/E", "Div Yld", "Qtr Profit Var", "Qtr Sales Var", "ROCE")  # compared with peers; price and size are not
+
+
+def _peer_cell(column: str, value: float | None) -> str:
+    if value is None:
+        return NA
+    return f"{value:,.0f}" if "Cr" in column else f"{value:,.2f}"
+
+
+def peer_position(fin: CompanyFinancials) -> list[str]:
+    """Where the company stands among the listed peers on the main ratios (rank 1 = highest value)."""
+    pc = fin.peers
+    me = next((p for p in pc.peers if p.company_id and p.company_id == fin.company_id), None) if pc else None
+    if pc is None or me is None:
+        return []
+    lines = []
+    for wanted in POSITION_COLUMNS:
+        i = pc.column(wanted)
+        mine = me.values[i] if i is not None else None
+        if mine is None:
+            continue
+        others = [p.values[i] for p in pc.peers if p.values[i] is not None]
+        rank = 1 + sum(1 for v in others if v > mine)
+        median = pc.median[i] if i < len(pc.median) else None
+        versus = f"; {pc.median_label} {_peer_cell(pc.columns[i], median)}" if median is not None else ""
+        lines.append(f"- {pc.columns[i]}: {_peer_cell(pc.columns[i], mine)}{versus}; rank {rank} of {len(others)} listed (1 = highest)")
+    return lines
+
+
+def render_peers(fin: CompanyFinancials) -> str:
+    pc: PeerComparison | None = fin.peers
+    if pc is None:
+        return ""
+    where = " > ".join(fin.classification)
+    head = "| Company | " + " | ".join(pc.columns) + " |"
+    lines = [head, "|" + "---|" * (len(pc.columns) + 1)]
+    for peer in pc.peers:
+        name = peer.name + (" (this company)" if peer.company_id and peer.company_id == fin.company_id else "")
+        lines.append("| " + " | ".join([name, *(_peer_cell(c, v) for c, v in zip(pc.columns, peer.values))]) + " |")
+    if pc.median:
+        lines.append("| " + " | ".join([pc.median_label, *(_peer_cell(c, v) for c, v in zip(pc.columns, pc.median))]) + " |")
+    note = (f"_Screener's peer table at fetch time{f' ({where})' if where else ''}. The median row covers a wider group than "
+            "the companies listed; CMP, market cap and quarter figures are in INR / INR crore._")
+    position = peer_position(fin)
+    return "\n\n".join(["### Peer comparison\n" + note, "\n".join(lines),
+                         ("Position among the listed peers:\n" + "\n".join(position)) if position else ""]).strip()
+
+
 def _ttm_line(fin: CompanyFinancials) -> str:
     t = ttm_summary(fin)
 
@@ -257,6 +305,7 @@ def render_data_section(fin: CompanyFinancials) -> str:
         "### Shareholding (% held, quarterly)\n" + render_table("Quarter", fin.shareholding.last(SHAREHOLDING_SHOWN))
         if fin.shareholding else "",
         render_table("Shareholding change (percentage points)", shareholding_changes(fin)),
+        render_peers(fin),
         "### Long-run growth (as displayed by Screener)\n" + "\n".join(f"- {g}" for g in growth) if growth else "",
         _remarks("### Screener's own remarks (auto-generated hints, not verified facts)\nPros:", fin.pros),
         _remarks("Cons:", fin.cons),
