@@ -30,7 +30,6 @@ def build_graph(llm: BaseChatModel | None = None):
     graph.add_edge(START, macro_agent.NAME)
     graph.add_edge(START, fundamentals_agent.NAME)
     graph.add_edge([news_agent.NAME, macro_agent.NAME, fundamentals_agent.NAME], outlook_agent.NAME)  # waits for all
-    graph.add_edge([news_agent.NAME, macro_agent.NAME], outlook_agent.NAME)  # waits for all
     graph.add_edge(outlook_agent.NAME, END)
     return graph.compile()
 
