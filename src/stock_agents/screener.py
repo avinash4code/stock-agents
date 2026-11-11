@@ -16,7 +16,7 @@ from urllib.parse import quote
 import httpx
 from lxml import html
 
-from stock_agents.fundamentals import EMPTY, CompanyFinancials, FundamentalsError, Peer, PeerComparison, Table
+from stock_agents.fundamentals import EMPTY, CompanyFinancials, FundamentalsError, NoFigures, Peer, PeerComparison, Table
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,16 @@ def _get(client: httpx.Client, url: str, sleep, retry: bool = True) -> httpx.Res
 
 
 def fetch_company(symbol: str, client: httpx.Client | None = None, sleep=time.sleep, today: date | None = None) -> CompanyFinancials:
-    """Download and parse a company's page: the consolidated view, else the standalone one."""
+    """Download and parse a company's page: the consolidated view, else the standalone one.
+
+    The standalone page is also used when the consolidated page exists but has no numbers in it.
+    """
     owns_client = client is None
     client = client or httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT})
     try:
         path = quote(symbol, safe="&-")
         urls = [f"{BASE_URL}/{path}/consolidated/", f"{BASE_URL}/{path}/"]
+        blank: list[str] = []  # pages that loaded but had no figures
         for i, url in enumerate(urls):
             if i:
                 sleep(REQUEST_GAP)
@@ -69,7 +73,19 @@ def fetch_company(symbol: str, client: httpx.Client | None = None, sleep=time.sl
                 )
             if response.status_code != 200:
                 raise FundamentalsError(f"Screener returned HTTP {response.status_code} for {symbol!r}")
-            return _with_peers(client, parse_company_page(response.text, str(response.url), today=today), sleep)
+            try:
+                fin = parse_company_page(response.text, str(response.url), today=today)
+            except NoFigures as exc:
+                logger.warning("Screener's page %s has no figures (%s)%s", response.url, exc,
+                               "; trying the next one" if i + 1 < len(urls) else "")
+                blank.append(url)
+                continue
+            return _with_peers(client, fin, sleep)
+        if blank:
+            raise NoFigures(
+                f"Screener's page for {symbol!r} has no financial figures ({', '.join(blank)}): it may be a recent "
+                "listing or a company that has not filed results yet"
+            )
         raise FundamentalsError(
             f"Screener has no company page for {symbol!r}; check the symbol (use the NSE symbol, e.g. 'INFY')"
         )
@@ -124,7 +140,7 @@ def parse_table(table, decimals: int = 0) -> Table:
     """A Screener data table: header = period labels, rows = label then one cell per period."""
     periods = [_clean(th.text_content()) for th in table.xpath(".//thead//th")][1:]
     if not periods:
-        raise FundamentalsError("Screener page layout changed: a financial table has no period headings")
+        raise NoFigures("a financial table on the Screener page has no period headings (no figures)")
     rows: dict[str, list[float | None]] = {}
     percent = set()
     for tr in table.xpath(".//tbody/tr"):
@@ -244,8 +260,16 @@ def parse_company_page(page: str, url: str = "", today: date | None = None) -> C
 
     figures = _text(root, "//section[@id='quarters']//p[contains(@class,'sub')]").lower()
     basis = "consolidated" if figures.startswith("consolidated") else "standalone" if figures.startswith("standalone") else ""
+    if not basis and (match := re.search(r"/company/[^/?#]+(/consolidated)?/?(?:[?#]|$)", url)):
+        # A company with no consolidated statements gets "Figures in Rs. Crores" without a basis word:
+        # its plain page is then the standalone one, while /consolidated/ is the consolidated view.
+        basis = "consolidated" if match.group(1) else "standalone"
     if not basis:
         raise FundamentalsError("Screener page layout changed: cannot tell whether the figures are consolidated or standalone")
+    for name, table in (("quarterly", quarterly), ("annual profit & loss", profit_loss)):
+        sales = table.values("Sales", "Revenue") or []
+        if not any(value is not None for value in sales):
+            raise NoFigures(f"the {name} table on the Screener page is empty (no figures)")
     financial = quarterly.find("Financing Profit") is not None or balance_sheet.find("Deposits") is not None
 
     return CompanyFinancials(

@@ -17,6 +17,11 @@ class FundamentalsError(RuntimeError):
     """The company could not be found or fetched, or the page layout was not understood."""
 
 
+class NoFigures(FundamentalsError):
+    """The page is fine but has no financial numbers (Screener sometimes serves its consolidated view
+    as empty tables, for companies whose real figures are on the standalone page)."""
+
+
 @dataclass(frozen=True)
 class Table:
     """A table of numbers: one value per period for each labelled row (`None` = blank on the page)."""

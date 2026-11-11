@@ -6,7 +6,7 @@ import respx
 from lxml import html
 
 from stock_agents import screener
-from stock_agents.fundamentals import FundamentalsError
+from stock_agents.fundamentals import FundamentalsError, NoFigures
 from stock_agents.screener import fetch_company, parse_company_page, parse_number, parse_peers
 from tests.conftest import FETCHED, PAGES, fixture_html, sample_financials
 
@@ -25,6 +25,7 @@ CONS = "https://www.screener.in/company/TCS/consolidated/"
 BARE = "https://www.screener.in/company/TCS/"
 PEERS = "https://www.screener.in/api/company/{}/peers/"
 TCS_WAREHOUSE, INFY_STANDALONE_WAREHOUSE = "6599230", "1143"
+CANTABIL_WAREHOUSE = "3076"
 
 
 def mock_peers(warehouse=TCS_WAREHOUSE, **response):
@@ -267,3 +268,67 @@ def test_live_screener_page_parses_and_has_recent_quarters():
     assert fin.basis == "consolidated" and len(fin.quarterly.periods) >= 8
     assert fin.quarterly.values("Sales")[-1] and fin.shareholding.values("Promoters")
     assert fin.peers and any(p.company_id == fin.company_id for p in fin.peers.peers)
+
+
+# -- companies whose consolidated page is blank (e.g. CANTABIL) -----------------------------------
+
+CANTABIL_CONS = "https://www.screener.in/company/CANTABIL/consolidated/"
+CANTABIL = "https://www.screener.in/company/CANTABIL/"
+
+
+def test_a_page_with_empty_tables_has_no_figures():
+    with pytest.raises(NoFigures, match="no period headings"):
+        parse_company_page(fixture_html("screener_cantabil_consolidated_blank.html"), CANTABIL_CONS)
+
+
+def test_a_table_with_periods_but_no_numbers_has_no_figures():
+    def blank_sales(root):
+        for section in ("quarters", "profit-loss"):
+            for td in _row(root, section, "Sales").xpath("./td")[1:]:
+                td.text = ""
+
+    with pytest.raises(NoFigures, match="quarterly table .* is empty"):
+        parse_company_page(edited(fixture_html("screener_tcs.html"), blank_sales), CONS)
+    assert issubclass(NoFigures, FundamentalsError)  # callers that catch the general error still work
+
+
+def test_the_basis_comes_from_the_url_when_the_page_does_not_say():
+    """Screener omits the word "Standalone" when a company has no consolidated statements at all."""
+    page = fixture_html("screener_cantabil_standalone.html")
+    assert parse_company_page(page, CANTABIL).basis == "standalone"
+    assert parse_company_page(page, CANTABIL + "?x=1").basis == "standalone"
+    assert parse_company_page(page, CANTABIL_CONS).basis == "consolidated"
+    with pytest.raises(FundamentalsError, match="consolidated or standalone"):  # no URL, no wording: still a layout error
+        parse_company_page(page)
+
+
+@respx.mock
+def test_fetch_falls_back_to_standalone_when_the_consolidated_page_is_blank(slept, caplog):
+    blank = respx.get(CANTABIL_CONS).mock(
+        return_value=httpx.Response(200, text=fixture_html("screener_cantabil_consolidated_blank.html")))
+    bare = respx.get(CANTABIL).mock(return_value=httpx.Response(200, text=fixture_html("screener_cantabil_standalone.html")))
+    peers = respx.get(PEERS.format(CANTABIL_WAREHOUSE)).mock(return_value=httpx.Response(404))
+    with caplog.at_level("WARNING"):
+        fin = fetch_company("CANTABIL", sleep=slept.append)
+    assert (blank.call_count, bare.call_count, peers.call_count) == (1, 1, 1)
+    assert slept == [screener.REQUEST_GAP, screener.REQUEST_GAP]  # before the fallback, before the peers
+    assert fin.basis == "standalone" and fin.quarterly.values("Sales")[-1] == 179.0
+    assert "has no figures" in caplog.text and "trying the next one" in caplog.text
+
+
+@respx.mock
+def test_fetch_reports_blank_pages_when_neither_view_has_figures(slept):
+    page = fixture_html("screener_cantabil_consolidated_blank.html")
+    respx.get(CANTABIL_CONS).mock(return_value=httpx.Response(200, text=page))
+    respx.get(CANTABIL).mock(return_value=httpx.Response(200, text=page))
+    with pytest.raises(NoFigures, match="no financial figures"):
+        fetch_company("CANTABIL", sleep=slept.append)
+
+
+@respx.mock
+def test_a_consolidated_404_and_a_blank_standalone_page_is_a_no_figures_error(slept):
+    respx.get(CANTABIL_CONS).mock(return_value=httpx.Response(404))
+    respx.get(CANTABIL).mock(return_value=httpx.Response(
+        200, text=fixture_html("screener_cantabil_consolidated_blank.html")))
+    with pytest.raises(NoFigures, match="no financial figures"):
+        fetch_company("CANTABIL", sleep=slept.append)
