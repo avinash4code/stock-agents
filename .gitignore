@@ -7,3 +7,7 @@ data/
 exports/
 news_reports/*
 exports/*
+.DS_Store
+
+node_modules/
+src/stock_agents/web/static/

@@ -57,6 +57,17 @@ reused reports, and records which ones it used). Set the defaults with `STOCK_AN
 for a week by default (quarterly data changes rarely; `STOCK_ANALYST_FUNDAMENTALS_MAX_AGE_HOURS`). The standalone `news`, `macro` and `fundamentals`
 commands always run their agent.
 
+## Web UI
+    pip install -e '.[web]'
+    (cd frontend && npm install && npm run build)   # builds the React app into src/stock_agents/web/static
+    stock-analyst serve                              # http://127.0.0.1:8000
+
+Search a company by name, NSE symbol or BSE code (typeahead from NSE's list; a BSE code is accepted as typed), read its
+stored reports rendered from markdown (contents sidebar, scrolling tables, download, print), and browse historical runs
+with the reports each one created or reused. For now it is read-only: analyses are started with the CLI. There is no
+login, so it listens on 127.0.0.1 by default. For frontend development run `stock-analyst serve` and `npm run dev` in
+`frontend/` (Vite proxies `/api`). API docs are at `/api/docs`.
+
 Add `-v` to log the settings used and each agent's token usage / finish reason.
 Use `news` and `macro` first, then `outlook`, to iterate on the outlook prompt without re-running the other agents.
 

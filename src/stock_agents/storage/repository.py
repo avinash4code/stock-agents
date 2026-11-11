@@ -26,6 +26,29 @@ def utcnow() -> datetime:
 
 
 @dataclass(frozen=True)
+class Run:
+    id: int
+    command: str
+    stock: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    status: str
+    error: str | None
+    provider: str | None
+    model: str | None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Run":
+        finished = row["finished_at"]
+        return cls(
+            id=row["id"], command=row["command"], stock=row["stock"],
+            started_at=datetime.fromisoformat(row["started_at"]),
+            finished_at=datetime.fromisoformat(finished) if finished else None,
+            status=row["status"], error=row["error"], provider=row["provider"], model=row["model"],
+        )
+
+
+@dataclass(frozen=True)
 class Report:
     id: int
     run_id: int
@@ -79,6 +102,26 @@ class Repository:
             (status, error, _iso(now or utcnow()), run_id),
         )
 
+    def get_run(self, run_id: int) -> Run | None:
+        row = self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return Run.from_row(row) if row else None
+
+    def list_runs(self, *, stocks: list[str] | None = None, limit: int = 50, offset: int = 0) -> list[Run]:
+        """Newest first; `stocks` keeps runs for any of those names. Runs of the one-off `import`
+        command are not analyses, so they are left out."""
+        sql, params = "SELECT * FROM runs WHERE command != 'import'", []
+        if stocks:
+            keys = sorted({k for k in map(stock_key, stocks) if k})
+            sql += f" AND lower(replace(stock, ' ', '-')) IN ({','.join('?' * len(keys))})"
+            params += keys
+        rows = self.conn.execute(
+            sql + " ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?", [*params, limit, offset]).fetchall()
+        return [Run.from_row(r) for r in rows]
+
+    def reports_for_run(self, run_id: int) -> list[Report]:
+        rows = self.conn.execute("SELECT * FROM reports WHERE run_id = ? ORDER BY id", (run_id,)).fetchall()
+        return [Report.from_row(r) for r in rows]
+
     # -- reports ------------------------------------------------------------------------
     def save_report(
         self, run_id: int, agent: str, content_md: str, *, stock: str | None = None,
@@ -123,14 +166,18 @@ class Repository:
         row = self.conn.execute(sql + " ORDER BY created_at DESC, id DESC LIMIT 1", params).fetchone()
         return Report.from_row(row) if row else None
 
-    def list(self, *, agent: str | None = None, stock: str | None = None, limit: int = 20) -> list[Report]:
+    def list(self, *, agent: str | None = None, stock: str | None = None, stocks: list[str] | None = None,
+             limit: int = 20) -> list[Report]:
+        """Newest first. `stock` is one name; `stocks` any of several names for the same company."""
         sql, params = "SELECT * FROM reports WHERE 1=1", []
         if agent:
             sql += " AND agent = ?"
             params.append(agent)
-        if stock:
-            sql += " AND stock_key = ?"
-            params.append(stock_key(stock))
+        names = [*(stocks or []), *([stock] if stock else [])]
+        if names:
+            keys = sorted({k for k in map(stock_key, names) if k})
+            sql += f" AND stock_key IN ({','.join('?' * len(keys))})"
+            params += keys
         rows = self.conn.execute(sql + " ORDER BY created_at DESC, id DESC LIMIT ?", [*params, limit]).fetchall()
         return [Report.from_row(r) for r in rows]
 

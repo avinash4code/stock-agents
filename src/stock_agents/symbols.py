@@ -91,6 +91,40 @@ def normalize_name(name: str) -> str:
     return " ".join(w for w in words if w != "the")
 
 
+def search_listings(query: str, listings: list[Listing], limit: int = 10) -> list[Listing]:
+    """Typeahead matches for a partial company name or symbol, best first.
+
+    Order: exact symbol, symbol prefix, name starting with the text, every typed word starting
+    some word of the name, then the text appearing anywhere in the name.
+    """
+    text = query.strip()
+    if suffix := next((s for s in SUFFIXES if text.upper().endswith(s)), None):
+        text = text[: -len(suffix)]
+    if not text:
+        return []
+    upper, wanted = text.upper(), normalize_name(text)
+    tokens = wanted.split()
+    ranked: list[tuple[int, int, str, Listing]] = []
+    for listing in listings:
+        name = normalize_name(listing.name)
+        words = name.split()
+        if listing.symbol == upper:
+            rank = 0
+        elif listing.symbol.startswith(upper):
+            rank = 1
+        elif wanted and name.startswith(wanted):
+            rank = 2
+        elif tokens and all(any(w.startswith(t) for w in words) for t in tokens):
+            rank = 3
+        elif wanted and wanted in name:
+            rank = 4
+        else:
+            continue
+        ranked.append((rank, len(listing.name), listing.symbol, listing))
+    ranked.sort(key=lambda r: r[:3])
+    return [r[3] for r in ranked[:limit]]
+
+
 def resolve_symbol(query: str, listings: list[Listing]) -> str:
     """The Screener symbol for a company name or symbol.
 

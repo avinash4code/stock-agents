@@ -6,6 +6,7 @@
     stock-analyst fundamentals TCS        # fundamentals agent only (quarterly results analysis)
     stock-analyst outlook TCS             # outlook agent only, on the latest stored news + macro (+ fundamentals) reports
     stock-analyst reports list            # browse stored reports; also `reports show ID`, `reports export ID`
+    stock-analyst serve                   # web UI at http://127.0.0.1:8000
     stock-analyst import news_reports/    # one-time import of reports saved as files by older versions
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from stock_agents.reports import DEFAULT_EXPORT_DIR, export_report, import_repor
 from stock_agents.storage import Report, Repository, connect
 from stock_agents.storage.repository import utcnow
 
-COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import"}
+COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve"}
 OPTIONS_WITH_VALUE = {"--db"}
 
 
@@ -217,8 +218,21 @@ def cmd_import(args, conn, repo) -> None:
     print(f"Imported {imported} report(s); skipped {skipped} (already stored or not a report file).")
 
 
+def cmd_serve(args, conn, repo) -> None:
+    try:
+        import uvicorn
+
+        from stock_agents.web.app import create_app
+    except ImportError:
+        raise SystemExit("The web UI needs extra packages: pip install -e '.[web]'") from None
+    path = Path(args.db) if getattr(args, "db", None) else db_path()
+    conn.close()
+    print(f"Serving on http://{args.host}:{args.port}  (database: {path})", file=sys.stderr)
+    uvicorn.run(create_app(path), host=args.host, port=args.port, log_level="info")
+
+
 HANDLERS = {"all": cmd_all, "news": cmd_news, "macro": cmd_macro, "fundamentals": cmd_fundamentals, "outlook": cmd_outlook,
-            "reports": cmd_reports, "import": cmd_import}
+            "reports": cmd_reports, "import": cmd_import, "serve": cmd_serve}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -269,6 +283,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("import", help="import markdown reports saved by older versions", parents=[common])
     p.add_argument("directory", help="folder with the old *.md reports, e.g. news_reports")
+
+    p = sub.add_parser("serve", help="start the web UI", parents=[common])
+    p.add_argument("--host", default="127.0.0.1",
+                   help="address to listen on (default: 127.0.0.1; the UI has no login, keep it local)")
+    p.add_argument("--port", type=int, default=8000)
     return parser
 
 

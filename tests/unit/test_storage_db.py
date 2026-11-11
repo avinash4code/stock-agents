@@ -89,3 +89,24 @@ def test_migration_2_keeps_existing_reports_and_links_and_allows_fundamentals(tm
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
     assert {"idx_reports_latest", "idx_reports_run"} <= names
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_connection_can_cross_threads_only_when_allowed(tmp_path):
+    import threading
+
+    def query_from_another_thread(conn):
+        errors = []
+
+        def work():
+            try:
+                conn.execute("SELECT 1").fetchone()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        t = threading.Thread(target=work)
+        t.start()
+        t.join()
+        return errors
+
+    assert query_from_another_thread(connect(tmp_path / "a.db"))
+    assert not query_from_another_thread(connect(tmp_path / "b.db", check_same_thread=False))
