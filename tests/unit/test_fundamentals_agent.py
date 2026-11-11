@@ -17,10 +17,11 @@ def test_named():
 
 def test_prompt_sections_and_guardrails():
     p = SYSTEM_PROMPT.lower()
-    for needle in ["## verdict", "## growth", "## profitability", "## balance sheet and cash flow", "## shareholding", "## versus peers",
-                   "## red flags and strengths", "## watch next quarter", "## data limits",
-                   "do not recalculate", "banks, nbfcs", "consolidated or standalone", "annual",
-                   "generated hints", "do not give buy/sell/hold", "not investment advice"]:
+    for needle in ["## verdict", "## growth", "## profitability & earnings quality", "## balance sheet & capital efficiency",
+                   "## shareholding & governance signals", "## versus peers", "## red flags & strengths",
+                   "## watch next quarter", "## data limits",
+                   "do not recalculate", "banks, nbfcs", "standalone vs. consolidated", "annual",
+                   "do not provide buy/sell/hold", "no investment advice"]:
         assert needle in p, needle
 
 
