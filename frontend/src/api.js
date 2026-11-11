@@ -9,7 +9,27 @@ async function get(path, params) {
   return res.json();
 }
 
+export class ApiError extends Error {
+  constructor(message, status, detail) { super(message); this.status = status; this.detail = detail; }
+}
+
+async function post(path, body) {
+  const res = await fetch(`/api${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const d = data.detail;
+    const message = typeof d === "string" ? d : d?.message || (Array.isArray(d) ? d.map((e) => e.msg).join("; ") : res.statusText);
+    throw new ApiError(message, res.status, d);
+  }
+  return data;
+}
+
 export const api = {
+  config: () => get("/config"),
+  startRun: (body) => post("/runs", body),
+  run: (id) => get(`/runs/${id}`),
   symbols: (q, signal) => fetch(`/api/symbols?q=${encodeURIComponent(q)}`, { signal }).then((r) => r.json()),
   runs: (params) => get("/runs", params),
   report: (id) => get(`/reports/${id}`),

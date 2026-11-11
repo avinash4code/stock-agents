@@ -64,8 +64,11 @@ commands always run their agent.
 
 Search a company by name, NSE symbol or BSE code (typeahead from NSE's list; a BSE code is accepted as typed), read its
 stored reports rendered from markdown (contents sidebar, scrolling tables, download, print), and browse historical runs
-with the reports each one created or reused. For now it is read-only: analyses are started with the CLI. There is no
-login, so it listens on 127.0.0.1 by default. For frontend development run `stock-analyst serve` and `npm run dev` in
+with the reports each one created or reused. **Run analysis** on a stock's page starts the whole workflow in the
+background (the same code as `stock-analyst all`, with the same report-reuse limits, overridable under Options) and
+shows live progress per agent; runs keep going if you leave the page. It needs the LLM API key in `.env` like the CLI,
+and one analysis per stock runs at a time. There is no login, so it listens on 127.0.0.1 by default and only accepts
+same-origin JSON requests to start runs. For frontend development run `stock-analyst serve` and `npm run dev` in
 `frontend/` (Vite proxies `/api`). API docs are at `/api/docs`.
 
 Add `-v` to log the settings used and each agent's token usage / finish reason.

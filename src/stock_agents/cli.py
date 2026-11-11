@@ -15,17 +15,15 @@ import argparse
 import logging
 import sqlite3
 import sys
-from contextlib import contextmanager
-from datetime import timedelta
 from pathlib import Path
 
 from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
-from stock_agents.config import LLMConfig, db_path, reuse_hours
+from stock_agents.analysis import run_all, save_report, tracked_run
+from stock_agents.config import LLMConfig, db_path
 from stock_agents.graph import run_workflow
 from stock_agents.llm import default_llm
 from stock_agents.reports import DEFAULT_EXPORT_DIR, export_report, import_reports, render_markdown
 from stock_agents.storage import Report, Repository, connect
-from stock_agents.storage.repository import utcnow
 
 COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve"}
 OPTIONS_WITH_VALUE = {"--db"}
@@ -36,31 +34,12 @@ def _llm():
     return cfg, default_llm(cfg)
 
 
-@contextmanager
-def tracked_run(conn: sqlite3.Connection, command: str, stock: str | None, cfg: LLMConfig):
-    """Record a run; it is marked failed (with the error) if the body raises."""
-    repo = Repository(conn)
-    with conn:
-        run_id = repo.start_run(command, stock, provider=cfg.provider, model=cfg.model, max_tokens=cfg.max_tokens)
-    try:
-        yield run_id
-    except BaseException as exc:
-        with conn:
-            repo.finish_run(run_id, "failed", f"{type(exc).__name__}: {exc}")
-        raise
-    with conn:
-        repo.finish_run(run_id)
+def _err(message: str) -> None:
+    print(message, file=sys.stderr)
 
 
 def _save(repo: Repository, run_id: int, agent: str, stock: str | None, text: str, meta: dict | None, **links) -> int:
-    meta = meta or {}
-    report_id = repo.save_report(
-        run_id, agent, text, stock=stock, truncated=meta.get("truncated", False),
-        input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"), **links,
-    )
-    note = " (INCOMPLETE: hit the token limit)" if meta.get("truncated") else ""
-    print(f"Saved {agent} report #{report_id}{note}", file=sys.stderr)
-    return report_id
+    return save_report(repo, run_id, agent, stock, text, meta, _err, **links)
 
 
 def _show(title: str, text: str) -> None:
@@ -79,49 +58,14 @@ def _pick(repo: Repository, report_id: int | None, agent: str, stock: str | None
     return report
 
 
-def _reusable(repo: Repository, agent: str, stock: str | None, cli_hours: float | None) -> Report | None:
-    """Latest complete stored report younger than the allowed age (CLI value, else config); 0 disables."""
-    hours = cli_hours if cli_hours is not None else reuse_hours(agent)
-    if hours <= 0:
-        return None
-    report = repo.latest(agent, stock, max_age=timedelta(hours=hours))
-    if report:
-        age = utcnow() - report.created_at
-        print(f"Reusing {agent} report #{report.id} ({age.total_seconds() / 3600:.1f}h old, limit {hours:g}h)", file=sys.stderr)
-    return report
-
-
 def cmd_all(args, conn, repo) -> None:
     cfg, llm = _llm()
     for name in ("max_news_age", "max_macro_age", "max_fundamentals_age"):
         if (getattr(args, name) or 0) < 0:
             raise SystemExit(f"--{name.replace('_', '-')} must be >= 0")
-    news_old = _reusable(repo, "news", args.stock, args.max_news_age)
-    macro_old = _reusable(repo, "macro", None, args.max_macro_age)
-    fund_old = _reusable(repo, "fundamentals", args.stock, args.max_fundamentals_age)
-    with tracked_run(conn, "all", args.stock, cfg) as run_id:
-        result = run_workflow(
-            args.stock, llm,
-            news_report=news_old.content_md if news_old else None,
-            macro_report=macro_old.content_md if macro_old else None,
-            fundamentals_report=fund_old.content_md if fund_old else None,
-        )
-        with conn:
-            news_id = news_old.id if news_old else _save(
-                repo, run_id, "news", args.stock, result["news_report"], result.get("news_meta"))
-            macro_id = macro_old.id if macro_old else _save(
-                repo, run_id, "macro", None, result["macro_report"], result.get("macro_meta"))
-            fund_id = None
-            if fund_old:
-                fund_id = fund_old.id
-            elif result.get("fundamentals_report"):
-                fund_id = _save(repo, run_id, "fundamentals", args.stock, result["fundamentals_report"],
-                                result.get("fundamentals_meta"))
-            else:  # data unavailable: the outlook still runs, without it
-                print(f"Warning: no fundamentals report - {result.get('fundamentals_error', 'unknown error')}",
-                      file=sys.stderr)
-            _save(repo, run_id, "outlook", args.stock, result["outlook_report"], result.get("outlook_meta"),
-                  news_report_id=news_id, macro_report_id=macro_id, fundamentals_report_id=fund_id)
+    result = run_all(
+        args.stock, conn, repo, cfg, llm, max_news_age=args.max_news_age, max_macro_age=args.max_macro_age,
+        max_fundamentals_age=args.max_fundamentals_age, notify=_err, workflow=run_workflow)
     _show(f"Stock news: {args.stock}", result["news_report"])
     _show("Macro environment", result["macro_report"])
     if result.get("fundamentals_report"):

@@ -5,17 +5,23 @@ The built frontend (`frontend/dist`, copied into `web/static` by `npm run build`
 """
 from __future__ import annotations
 
+import re
+from contextlib import asynccontextmanager
 import sqlite3
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from stock_agents.reports import export_filename, render_markdown
 from stock_agents.storage import Report, Repository, Run, connect
-from stock_agents.symbols import Listing, load_listings, normalize_name, search_listings
+from stock_agents.config import LLMConfig, reuse_hours
+from stock_agents.fundamentals import FundamentalsError
+from stock_agents.symbols import Listing, load_listings, normalize_name, resolve_symbol, search_listings
+from stock_agents.web.jobs import AlreadyRunning, JobManager
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -38,7 +44,19 @@ def report_detail(r: Report, repo: Repository) -> dict:
     return out
 
 
-def run_summary(run: Run, repo: Repository) -> dict:
+class RunRequest(BaseModel):
+    stock: str = Field(min_length=1, max_length=100)
+    max_news_age: float | None = Field(None, ge=0, le=24 * 365)
+    max_macro_age: float | None = Field(None, ge=0, le=24 * 365)
+    max_fundamentals_age: float | None = Field(None, ge=0, le=24 * 365)
+
+
+def display_name(listing: Listing) -> str:
+    """"Infosys Limited" -> "Infosys": the name stored with the reports and used as the news query."""
+    return re.sub(r"\s+(limited|ltd\.?)$", "", listing.name, flags=re.I).strip() or listing.name
+
+
+def run_summary(run: Run, repo: Repository, jobs: JobManager | None = None, symbol: str | None = None) -> dict:
     """A run with the reports it produced and, for `all` runs, the older reports it reused."""
     own = repo.reports_for_run(run.id)
     reused: dict[str, Report] = {}
@@ -47,19 +65,29 @@ def run_summary(run: Run, repo: Repository) -> dict:
                            ("fundamentals", outlook.fundamentals_report_id)):
             if rid and not any(r.id == rid for r in own) and (src := repo.get(rid)):
                 reused[agent] = src
+    stages = jobs.stages(run.id) if jobs and run.status == "running" else None
     return {
-        "id": run.id, "command": run.command, "stock": run.stock, "status": run.status, "error": run.error,
+        "id": run.id, "command": run.command, "stock": run.stock, "symbol": symbol, "status": run.status, "error": run.error,
         "started_at": run.started_at.isoformat(),
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "provider": run.provider, "model": run.model,
         "reports": [report_summary(r) for r in own],
         "reused": [report_summary(r) for r in reused.values()],
+        "stages": stages,
     }
 
 
-def create_app(db_file: str | Path, listings: list[Listing] | None = None) -> FastAPI:
-    app = FastAPI(title="stock-analyst", docs_url="/api/docs", openapi_url="/api/openapi.json")
+def create_app(db_file: str | Path, listings: list[Listing] | None = None,
+               jobs: JobManager | None = None) -> FastAPI:
     connect(db_file).close()  # create / migrate once up front
+    jobs = jobs or JobManager(db_file)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        jobs.shutdown()
+
+    app = FastAPI(title="stock-analyst", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
     state = {"listings": listings}
 
     def get_listings() -> list[Listing]:
@@ -79,6 +107,16 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None) -> Fa
                 names |= {listing.symbol, listing.name, normalize_name(listing.name)}
         return sorted(names)
 
+    def symbol_for(stock: str | None) -> str | None:
+        """The NSE symbol for a stored stock name ("Infosys", "INFY"), so the UI can link to its page."""
+        if not stock:
+            return None
+        wanted = normalize_name(stock)
+        for listing in get_listings():
+            if listing.symbol == stock.strip().upper() or normalize_name(listing.name) == wanted:
+                return listing.symbol
+        return stock
+
     def get_repo() -> Iterator[Repository]:
         # FastAPI may run this dependency and the endpoint on different threads; the connection
         # is still used by one request at a time and closed at the end of it.
@@ -95,14 +133,46 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None) -> Fa
     @app.get("/api/runs")
     def runs(stock: str | None = Query(None, max_length=100), limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
              repo: Repository = Depends(get_repo)):
-        return [run_summary(r, repo) for r in repo.list_runs(stocks=aliases(stock), limit=limit, offset=offset)]
+        return [run_summary(r, repo, jobs, symbol_for(r.stock)) for r in repo.list_runs(stocks=aliases(stock), limit=limit, offset=offset)]
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: int, repo: Repository = Depends(get_repo)):
         found = repo.get_run(run_id)
         if found is None:
             raise HTTPException(404, f"No run #{run_id}")
-        return run_summary(found, repo)
+        return run_summary(found, repo, jobs, symbol_for(found.stock))
+
+    @app.get("/api/config")
+    def config():
+        """Whether analyses can be started from the UI, and the report-reuse defaults (hours)."""
+        out = {"reuse_hours": {k: reuse_hours(k) for k in ("news", "macro", "fundamentals")}}
+        try:
+            cfg = LLMConfig.from_env()
+        except RuntimeError as exc:
+            return {**out, "can_run": False, "reason": str(exc)}
+        return {**out, "can_run": True, "provider": cfg.provider, "model": cfg.model}
+
+    @app.post("/api/runs", status_code=202)
+    def start_run(body: RunRequest, request: Request):
+        """Start the whole workflow for a company. Spends LLM tokens, so it only accepts same-origin
+        JSON requests (a cross-site page cannot send those without a CORS preflight, which is refused)."""
+        origin = request.headers.get("origin")
+        if origin and origin.split("://", 1)[-1] != request.headers.get("host"):
+            raise HTTPException(403, "cross-origin request refused")
+        try:
+            symbol = resolve_symbol(body.stock, get_listings())
+        except FundamentalsError as exc:
+            raise HTTPException(400, str(exc)) from None
+        listing = next((l for l in get_listings() if l.symbol == symbol), None)
+        stock = display_name(listing) if listing else symbol
+        try:
+            run_id = jobs.start(stock, max_news_age=body.max_news_age, max_macro_age=body.max_macro_age,
+                                max_fundamentals_age=body.max_fundamentals_age)
+        except AlreadyRunning as exc:
+            raise HTTPException(409, {"message": str(exc), "run_id": exc.run_id}) from None
+        except RuntimeError as exc:  # no API key, bad LLM settings
+            raise HTTPException(503, str(exc)) from None
+        return {"run_id": run_id, "stock": stock}
 
     def find_report(report_id: int, repo: Repository) -> Report:
         found = repo.get(report_id)

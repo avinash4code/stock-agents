@@ -11,11 +11,11 @@ export default function Home() {
     <section>
       <div className="hero">
         <h1>Analyse an Indian stock</h1>
-        <p className="muted">Search by company name, NSE symbol or BSE code to see its stored news, fundamentals, macro and outlook reports.</p>
+        <p className="muted">Search by company name, NSE symbol or BSE code to read its stored reports or run a fresh analysis.</p>
         <SymbolSearch autoFocus onSelect={(item) => navigate(`/stock/${encodeURIComponent(item.symbol)}`)} />
       </div>
       <div className="section-head"><h2>Recent runs</h2><Link to="/history">All history</Link></div>
-      {runs && <RunList runs={runs} empty="No runs yet. Run `stock-analyst all TCS` to create one." />}
+      {runs && <RunList runs={runs} empty="No runs yet. Search for a company above to run one." />}
     </section>
   );
 }

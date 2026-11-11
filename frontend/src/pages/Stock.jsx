@@ -3,7 +3,14 @@ import { Link, useParams } from "react-router-dom";
 import { AGENT_LABELS, api } from "../api.js";
 import { useAsync } from "../hooks.js";
 import ReportView from "../components/ReportView.jsx";
+import RunPanel from "../components/RunPanel.jsx";
 import RunList from "../components/RunList.jsx";
+
+// The most recent stock-specific report (the macro report is market-wide, not part of this company's history).
+function newest(latest) {
+  return ["outlook", "fundamentals", "news"].map((a) => latest[a]).filter(Boolean)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+}
 
 const ORDER = ["outlook", "fundamentals", "news", "macro"];
 
@@ -41,8 +48,9 @@ export default function Stock() {
         <h1>{symbol}</h1>
         <Link to="/">New search</Link>
       </div>
+      <RunPanel stock={symbol} latest={newest(data.latest)} />
       {tabs.length === 0 ? (
-        <p className="muted">No stored reports for {symbol} yet. Run <code>stock-analyst all {symbol}</code>, then reload.</p>
+        <p className="muted">No stored reports for {symbol} yet.</p>
       ) : (
         <>
           <div className="tabs" role="tablist">

@@ -95,3 +95,23 @@ table.runs td.chips { min-width: 220px; }
   body, .md { background: #fff; color: #000; border: 0; }
   .report-body { display: block; } .md { padding: 0; }
 }
+
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 8px 18px; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.1); text-decoration: none; }
+.linklike { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+.runpanel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+.runpanel-main { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.runpanel-options { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; align-items: end; }
+.runpanel-options p { flex-basis: 100%; margin: 0; }
+.runpanel-options label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
+.runpanel-options input { width: 120px; padding: 6px 8px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+a.badge:hover { text-decoration: none; filter: brightness(1.15); }
+
+.stages { list-style: none; padding: 0; margin: 20px 0; display: grid; gap: 8px; max-width: 560px; }
+.stage { display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.stage strong { min-width: 110px; }
+.stage .icon { width: 20px; text-align: center; font-size: 1.1rem; color: var(--muted); }
+.stage.done .icon { color: var(--ok); } .stage.failed .icon { color: var(--bad); } .stage.reused .icon { color: var(--accent); }
+.stage.running .icon { color: var(--warn); animation: spin 1.2s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .stage.running .icon { animation: none; } }

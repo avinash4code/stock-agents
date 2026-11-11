@@ -112,3 +112,11 @@ def test_supplied_news_and_macro_reports_skip_both_agents():
     assert llm.messages_for("news") == [] and llm.messages_for("macro") == [] and llm.messages_for("fundamentals") == []
     task = llm.messages_for("outlook")[0][1].content
     assert "STORED NEWS" in task and "STORED MACRO" in task and "STORED FUNDAMENTALS" in task
+
+
+def test_run_workflow_reports_each_node_as_it_finishes():
+    seen = []
+    result = run_workflow("TCS", llm=_llm(), progress=seen.append)
+    assert set(seen) == {"news_agent", "macro_agent", "fundamentals_agent", "outlook_agent"}
+    assert seen[-1] == "outlook_agent"  # the outlook waits for the other three
+    assert result["outlook_report"] and result["news_report"]

@@ -33,10 +33,10 @@ export default function RunList({ runs, empty = "Nothing here yet." }) {
           {runs.map((run) => (
             <tr key={run.id}>
               <td title={formatWhen(run.started_at)}>{ago(run.started_at)}<div className="muted small">{duration(run)}</div></td>
-              <td>{run.stock ? <Link to={`/stock/${encodeURIComponent(run.stock)}`}>{run.stock}</Link> : <span className="muted">market</span>}</td>
+              <td>{run.stock ? <Link to={`/stock/${encodeURIComponent(run.symbol || run.stock)}`}>{run.stock}</Link> : <span className="muted">market</span>}</td>
               <td>{run.command}</td>
               <td>
-                <span className={`badge ${run.status}`}>{run.status}</span>
+                <Link to={`/run/${run.id}`} className={`badge ${run.status}`}>{run.status}</Link>
                 {run.error && <div className="small error" title={run.error}>{run.error.slice(0, 80)}</div>}
               </td>
               <td className="chips"><ReportLinks run={run} /></td>

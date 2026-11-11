@@ -1,6 +1,8 @@
 """The workflow graph: wires agents together. Add new agents as nodes here."""
 from __future__ import annotations
 
+from typing import Callable
+
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
@@ -40,11 +42,13 @@ def run_workflow(
     news_report: str | None = None,
     macro_report: str | None = None,
     fundamentals_report: str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict:
     """Run the workflow for one stock; returns the final state.
 
     Pass `news_report`, `macro_report` and/or `fundamentals_report` to reuse existing reports:
-    the matching agent is skipped and the supplied text is used as is.
+    the matching agent is skipped and the supplied text is used as is. `progress(node_name)` is
+    called as each node finishes.
     """
     initial = {"stock": stock}
     if news_report:
@@ -53,4 +57,12 @@ def run_workflow(
         initial["macro_report"] = macro_report
     if fundamentals_report:
         initial["fundamentals_report"] = fundamentals_report
-    return build_graph(llm).invoke(initial)
+    graph = build_graph(llm)
+    if progress is None:
+        return graph.invoke(initial)
+    state = dict(initial)
+    for update in graph.stream(initial, stream_mode="updates"):  # {node name: the keys it wrote}
+        for node, written in update.items():
+            state.update(written or {})
+            progress(node)
+    return state
