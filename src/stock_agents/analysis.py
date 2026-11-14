@@ -26,8 +26,9 @@ def tracked_run(conn: sqlite3.Connection, command: str, stock: str | None, cfg: 
     if the body raises."""
     repo = Repository(conn)
     if run_id is None:
+        provider, model = cfg.describe()
         with conn:
-            run_id = repo.start_run(command, stock, provider=cfg.provider, model=cfg.model, max_tokens=cfg.max_tokens)
+            run_id = repo.start_run(command, stock, provider=provider, model=model, max_tokens=cfg.max_tokens)
     try:
         yield run_id
     except BaseException as exc:

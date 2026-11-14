@@ -14,7 +14,7 @@ from typing import Callable
 
 from stock_agents.analysis import STAGES, run_all
 from stock_agents.config import LLMConfig
-from stock_agents.llm import default_llm
+from stock_agents.llm import build_llm
 from stock_agents.storage import Repository, connect, stock_key
 from stock_agents.storage.repository import utcnow
 
@@ -25,7 +25,7 @@ STALE_AFTER = timedelta(minutes=30)
 
 def default_llm_factory() -> tuple[LLMConfig, object]:
     cfg = LLMConfig.from_env()
-    return cfg, default_llm(cfg)
+    return cfg, build_llm(cfg)
 
 
 class AlreadyRunning(Exception):

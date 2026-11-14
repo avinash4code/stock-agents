@@ -92,6 +92,35 @@ Settings come from `.env`; a real environment variable (e.g. `export LLM_MAX_TOK
 defaults in `config.py` apply only when neither sets a value. Reasoning models spend `LLM_MAX_TOKENS` on hidden
 thinking too, so keep it generous (16000 works for deepseek-flash).
 
+### A different model per agent
+By default every agent uses the `LLM_*` model. To give one agent its own, set `LLM_<AGENT>_PROVIDER`,
+`LLM_<AGENT>_MODEL`, `LLM_<AGENT>_TEMPERATURE`, `LLM_<AGENT>_MAX_TOKENS` and/or `LLM_<AGENT>_BASE_URL` (`<AGENT>` = `NEWS`, `MACRO`,
+`FUNDAMENTALS` or `OUTLOOK`); whatever you leave out is inherited. Switching an agent to another provider uses
+that provider's API key and default model and does not inherit `LLM_BASE_URL`. For example, cheap tool-using
+agents and a stronger writer:
+
+    LLM_PROVIDER=deepseek
+    LLM_MODEL=deepseek-flash
+    LLM_FUNDAMENTALS_MODEL=deepseek-v4-pro
+    LLM_OUTLOOK_PROVIDER=anthropic       # needs ANTHROPIC_API_KEY
+    LLM_OUTLOOK_MODEL=claude-sonnet-5-5
+    LLM_TEMPERATURE=0.2                  # default for every agent (DeepSeek only)
+    LLM_OUTLOOK_TEMPERATURE=0.3          # per agent
+
+A run with mixed models is recorded with provider `mixed` and the model of each agent. Anthropic requests do not
+send a temperature (Sonnet 5.5 and newer reject non-default values), so the temperature settings (global and per agent) only affect DeepSeek.
+
+### Comparing model setups
+    stock-analyst compare TCS HDFCBANK Infosys     # flash+sonnet vs flash+pro on the same stocks
+    stock-analyst compare TCS --setup cheap "all=deepseek:deepseek-flash" \
+                              --setup mix "news=deepseek:deepseek-flash,macro=deepseek:deepseek-flash,outlook=anthropic:claude-sonnet-5-5"
+
+Each stock is run fresh through each setup (a setup lists `agent=provider:model@temperature`, or `all=`; either part may be left out, e.g. `outlook=@0.3`; agents it does not
+name use the `.env` defaults). Output goes to `comparisons/<timestamp>/`: `summary.md` (token totals, failures,
+truncated replies) and, per stock, an `.html` page with the setups in columns for each agent plus a `.md` copy.
+Nothing is stored in the database. This spends real tokens (every agent, every stock, every setup), so start
+with a few stocks, including a bank and a standalone-only company.
+
 ## Tests
     .venv/bin/pytest                # unit + integration (offline, LLM and network faked)
     .venv/bin/pytest -m live        # real network + Anthropic API

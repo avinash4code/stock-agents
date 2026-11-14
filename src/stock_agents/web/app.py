@@ -150,7 +150,8 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None,
             cfg = LLMConfig.from_env()
         except RuntimeError as exc:
             return {**out, "can_run": False, "reason": str(exc)}
-        return {**out, "can_run": True, "provider": cfg.provider, "model": cfg.model}
+        provider, model = cfg.describe()
+        return {**out, "can_run": True, "provider": provider, "model": model}
 
     @app.post("/api/runs", status_code=202)
     def start_run(body: RunRequest, request: Request):

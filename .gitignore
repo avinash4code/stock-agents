@@ -7,6 +7,7 @@ data/
 exports/
 news_reports/*
 exports/*
+comparisons/
 .DS_Store
 
 node_modules/

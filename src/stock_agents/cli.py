@@ -6,6 +6,7 @@
     stock-analyst fundamentals TCS        # fundamentals agent only (quarterly results analysis)
     stock-analyst outlook TCS             # outlook agent only, on the latest stored news + macro (+ fundamentals) reports
     stock-analyst reports list            # browse stored reports; also `reports show ID`, `reports export ID`
+    stock-analyst compare TCS HDFCBANK    # run stocks through different per-agent model setups, side by side
     stock-analyst serve                   # web UI at http://127.0.0.1:8000
     stock-analyst import news_reports/    # one-time import of reports saved as files by older versions
 """
@@ -19,19 +20,21 @@ from pathlib import Path
 
 from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
 from stock_agents.analysis import run_all, save_report, tracked_run
+from stock_agents.compare import (
+    DEFAULT_SETUPS, describe_setup, parse_setup, run_comparison, write_comparison)
 from stock_agents.config import LLMConfig, db_path
 from stock_agents.graph import run_workflow
-from stock_agents.llm import default_llm
+from stock_agents.llm import build_llm, model_for
 from stock_agents.reports import DEFAULT_EXPORT_DIR, export_report, import_reports, render_markdown
 from stock_agents.storage import Report, Repository, connect
 
-COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve"}
+COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve", "compare"}
 OPTIONS_WITH_VALUE = {"--db"}
 
 
 def _llm():
     cfg = LLMConfig.from_env()
-    return cfg, default_llm(cfg)
+    return cfg, build_llm(cfg)
 
 
 def _err(message: str) -> None:
@@ -76,7 +79,7 @@ def cmd_all(args, conn, repo) -> None:
 def cmd_news(args, conn, repo) -> None:
     cfg, llm = _llm()
     with tracked_run(conn, "news", args.stock, cfg) as run_id:
-        state = news_agent.news_agent_node(llm)({"stock": args.stock})
+        state = news_agent.news_agent_node(model_for(llm, "news"))({"stock": args.stock})
         with conn:
             _save(repo, run_id, "news", args.stock, state["news_report"], state.get("news_meta"))
     _show(f"Stock news: {args.stock}", state["news_report"])
@@ -85,7 +88,7 @@ def cmd_news(args, conn, repo) -> None:
 def cmd_macro(args, conn, repo) -> None:
     cfg, llm = _llm()
     with tracked_run(conn, "macro", None, cfg) as run_id:
-        state = macro_agent.macro_agent_node(llm)({})
+        state = macro_agent.macro_agent_node(model_for(llm, "macro"))({})
         with conn:
             _save(repo, run_id, "macro", None, state["macro_report"], state.get("macro_meta"))
     _show("Macro environment", state["macro_report"])
@@ -94,7 +97,7 @@ def cmd_macro(args, conn, repo) -> None:
 def cmd_fundamentals(args, conn, repo) -> None:
     cfg, llm = _llm()
     with tracked_run(conn, "fundamentals", args.stock, cfg) as run_id:
-        state = fundamentals_agent.fundamentals_agent_node(llm)({"stock": args.stock})
+        state = fundamentals_agent.fundamentals_agent_node(model_for(llm, "fundamentals"))({"stock": args.stock})
         if "fundamentals_report" not in state:
             raise SystemExit(f"Cannot run fundamentals: {state['fundamentals_error']}.")
         with conn:
@@ -121,7 +124,7 @@ def cmd_outlook(args, conn, repo) -> None:
     fund = _pick_fundamentals(repo, args.fundamentals_id, args.stock)
     cfg, llm = _llm()
     with tracked_run(conn, "outlook", args.stock, cfg) as run_id:
-        state = outlook_agent.outlook_agent_node(llm)(
+        state = outlook_agent.outlook_agent_node(model_for(llm, "outlook"))(
             {"stock": args.stock, "news_report": news.content_md, "macro_report": macro.content_md,
              "fundamentals_report": fund.content_md if fund else ""}
         )
@@ -162,6 +165,22 @@ def cmd_import(args, conn, repo) -> None:
     print(f"Imported {imported} report(s); skipped {skipped} (already stored or not a report file).")
 
 
+def cmd_compare(args, conn, repo) -> None:
+    base = LLMConfig.from_env()
+    if args.setup and len({label for label, _ in args.setup}) != len(args.setup):
+        raise SystemExit("Cannot compare: each --setup needs a different label.")
+    specs = dict(args.setup) if args.setup else DEFAULT_SETUPS
+    try:
+        setups = {label: parse_setup(spec, base) for label, spec in specs.items()}
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(f"Cannot compare: {exc}") from None
+    _err(f"Comparing {len(setups)} setup(s) on {len(args.stocks)} stock(s): this runs every agent for each, "
+         "and spends LLM tokens.")
+    comparison = run_comparison(args.stocks, setups, notify=_err)
+    out = write_comparison(comparison, {k: describe_setup(c) for k, c in setups.items()}, args.dir)
+    print(f"Wrote the comparison to {out}  (open the .html files; summary.md has token totals)")
+
+
 def cmd_serve(args, conn, repo) -> None:
     try:
         import uvicorn
@@ -175,7 +194,7 @@ def cmd_serve(args, conn, repo) -> None:
     uvicorn.run(create_app(path), host=args.host, port=args.port, log_level="info")
 
 
-HANDLERS = {"all": cmd_all, "news": cmd_news, "macro": cmd_macro, "fundamentals": cmd_fundamentals, "outlook": cmd_outlook,
+HANDLERS = {"compare": cmd_compare, "all": cmd_all, "news": cmd_news, "macro": cmd_macro, "fundamentals": cmd_fundamentals, "outlook": cmd_outlook,
             "reports": cmd_reports, "import": cmd_import, "serve": cmd_serve}
 
 
@@ -227,6 +246,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("import", help="import markdown reports saved by older versions", parents=[common])
     p.add_argument("directory", help="folder with the old *.md reports, e.g. news_reports")
+
+    p = sub.add_parser("compare", help="run stocks through different per-agent model setups and write the reports "
+                       "side by side (nothing is stored in the database)", parents=[common])
+    p.add_argument("stocks", nargs="+", metavar="stock", help=stock_help)
+    p.add_argument("--setup", nargs=2, action="append", metavar=("LABEL", "SPEC"),
+                   help='a setup to try, e.g. --setup mix "news=deepseek:deepseek-flash@0,outlook=anthropic:claude-sonnet-5-5" '
+                        "(agents: news, macro, fundamentals, outlook, or all; repeat for more setups; "
+                        "default: flash+sonnet and flash+pro)")
+    p.add_argument("--dir", default="comparisons", help="folder for the output (default: comparisons)")
 
     p = sub.add_parser("serve", help="start the web UI", parents=[common])
     p.add_argument("--host", default="127.0.0.1",

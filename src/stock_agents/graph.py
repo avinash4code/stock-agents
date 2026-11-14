@@ -7,11 +7,11 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
 from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
-from stock_agents.llm import default_llm
+from stock_agents.llm import PerAgentLLM, build_llm, model_for
 from stock_agents.state import WorkflowState
 
 
-def build_graph(llm: BaseChatModel | None = None):
+def build_graph(llm: BaseChatModel | PerAgentLLM | None = None):
     """Compile the workflow.
 
         START -> news_agent         -+
@@ -19,15 +19,16 @@ def build_graph(llm: BaseChatModel | None = None):
         START -> fundamentals_agent -+
 
     News, macro and fundamentals are independent, so they run in parallel; the outlook agent
-    starts once all three have finished and reads their reports.
+    starts once all three have finished and reads their reports. `llm` is one model for every agent or a
+    `PerAgentLLM`; by default it is built from the environment (`LLM_*`, plus `LLM_<AGENT>_*` per agent).
     """
-    llm = llm or default_llm()
+    llm = llm or build_llm()
 
     graph = StateGraph(WorkflowState)
-    graph.add_node(news_agent.NAME, news_agent.news_agent_node(llm))
-    graph.add_node(macro_agent.NAME, macro_agent.macro_agent_node(llm))
-    graph.add_node(fundamentals_agent.NAME, fundamentals_agent.fundamentals_agent_node(llm))
-    graph.add_node(outlook_agent.NAME, outlook_agent.outlook_agent_node(llm))
+    graph.add_node(news_agent.NAME, news_agent.news_agent_node(model_for(llm, "news")))
+    graph.add_node(macro_agent.NAME, macro_agent.macro_agent_node(model_for(llm, "macro")))
+    graph.add_node(fundamentals_agent.NAME, fundamentals_agent.fundamentals_agent_node(model_for(llm, "fundamentals")))
+    graph.add_node(outlook_agent.NAME, outlook_agent.outlook_agent_node(model_for(llm, "outlook")))
     graph.add_edge(START, news_agent.NAME)
     graph.add_edge(START, macro_agent.NAME)
     graph.add_edge(START, fundamentals_agent.NAME)
@@ -38,7 +39,7 @@ def build_graph(llm: BaseChatModel | None = None):
 
 def run_workflow(
     stock: str,
-    llm: BaseChatModel | None = None,
+    llm: BaseChatModel | PerAgentLLM | None = None,
     news_report: str | None = None,
     macro_report: str | None = None,
     fundamentals_report: str | None = None,

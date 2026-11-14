@@ -120,3 +120,16 @@ def test_run_workflow_reports_each_node_as_it_finishes():
     assert set(seen) == {"news_agent", "macro_agent", "fundamentals_agent", "outlook_agent"}
     assert seen[-1] == "outlook_agent"  # the outlook waits for the other three
     assert result["outlook_report"] and result["news_report"]
+
+
+def test_each_agent_uses_its_own_model_when_given_a_per_agent_llm():
+    from stock_agents.llm import PerAgentLLM
+
+    cheap = _llm(news="cheap news", macro="cheap macro", fundamentals="cheap fundamentals")
+    strong = _llm(outlook="strong outlook", fundamentals="strong fundamentals")
+    result = run_workflow("TCS", llm=PerAgentLLM(cheap, {"fundamentals": strong, "outlook": strong}))
+    assert (result["news_report"], result["macro_report"], result["outlook_report"]) == (
+        "cheap news", "cheap macro", "strong outlook")
+    assert result["fundamentals_report"].endswith("strong fundamentals")
+    assert cheap.messages_for("outlook") == [] and cheap.messages_for("fundamentals") == []
+    assert strong.messages_for("news") == [] and strong.messages_for("macro") == []
