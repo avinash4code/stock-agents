@@ -4,14 +4,18 @@ import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import GithubSlugger from "github-slugger";
+import { Table, Td, Tr } from "./ReportTable.jsx";
 
 // Sanitise first (report text includes scraped article content), then add heading ids.
 const REHYPE = [rehypeSanitize, rehypeSlug];
 const REMARK = [remarkGfm];
 
 const components = {
-  // Wide financial tables scroll sideways instead of breaking the page layout.
-  table: ({ node, ...props }) => <div className="table-wrap"><table {...props} /></div>,
+  // Wide financial tables scroll sideways (opening at the latest period), keep their row labels in view, mark
+  // negative numbers and add trend sparklines: see ReportTable.
+  table: Table,
+  tr: Tr,
+  td: Td,
   a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
 };
 

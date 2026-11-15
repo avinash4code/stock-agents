@@ -171,3 +171,14 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .ss-chip-v i { width: 11px; height: 11px; border-radius: 50%; background: var(--tone); }
 .ss-chip-c { font-size: .85rem; font-weight: 500; color: var(--muted); }
 @media (max-width: 760px) { .ss-chips { grid-template-columns: 1fr; } }
+
+/* Report tables: sticky row labels, negatives in red, row sparklines */
+.md td:first-child, .md th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--border); }
+.md thead th:first-child, .md tbody tr:nth-child(even) td:first-child { background: var(--stripe); }
+.md td.neg { color: var(--bad); }
+.rowhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.spark { flex: none; overflow: visible; }
+.spark polyline { stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.spark circle { fill: var(--muted); }
+.spark.up polyline { stroke: var(--ok); } .spark.up circle { fill: var(--ok); }
+.spark.down polyline { stroke: var(--bad); } .spark.down circle { fill: var(--bad); }
