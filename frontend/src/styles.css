@@ -100,7 +100,6 @@ table.runs td.chips { min-width: 220px; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.1); text-decoration: none; }
 .linklike { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
 .runpanel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
-.runpanel-main { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .runpanel-options { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; align-items: end; }
 .runpanel-options p { flex-basis: 100%; margin: 0; }
 .runpanel-options label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
@@ -139,16 +138,8 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--tone); opacity: .55; }
 .dots i.on { background: var(--tone); opacity: 1; }
 .rating-word { font-size: .8rem; font-weight: 600; color: var(--tone); }
-.ss-lists { display: flex; gap: 8px 28px; flex-wrap: wrap; margin-bottom: 10px; }
-.ss-lists summary { cursor: pointer; font-weight: 600; }
-.ss-lists .flags summary { color: var(--bad); } .ss-lists .strengths summary { color: var(--ok); }
-.ss-lists ul { margin: 6px 0 0; padding-left: 20px; max-width: 34ch; }
-.ss-links { margin: 6px 0; }
-.ss-foot { display: flex; gap: 16px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.ss-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 @media (max-width: 640px) { .ss-price { text-align: left; } }
-.ss-lists summary { list-style: none; } .ss-lists summary::-webkit-details-marker { display: none; }
-.ss-lists details[open] summary { text-decoration: underline; }
-.ss-refresh { margin-left: 8px; font-size: 1rem; } .ss-refresh:disabled { opacity: .5; cursor: default; }
 
 /* Pillar rows are buttons that jump to the matching report section */
 .ss-pillars li { display: block; }
@@ -159,3 +150,17 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 @keyframes jump-flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .jump-flash { animation: jump-flash 1.8s ease-out; }
 @media (max-width: 640px) { .ss-pillar { grid-template-columns: 8rem 9rem; } .ss-pillar .ss-evidence { grid-column: 1 / -1; } }
+
+/* Red / green / blue cards under the pillars */
+.ss-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 4px 0 12px; }
+.ss-card { --tone: var(--accent); padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border)); border-left: 4px solid var(--tone); border-radius: 10px; background: color-mix(in srgb, var(--tone) 8%, var(--surface)); }
+.ss-card.flags { --tone: var(--bad); } .ss-card.strengths { --tone: var(--ok); } .ss-card.watch { --tone: var(--accent); }
+.ss-card h3 { margin: 0 0 6px; font-size: .95rem; color: var(--tone); }
+.ss-card ul { margin: 0; padding-left: 18px; } .ss-card li { margin: 2px 0; font-size: .9rem; } .ss-card p { margin: 0; }
+@media (max-width: 760px) { .ss-cards { grid-template-columns: 1fr; } }
+
+/* The single refresh control: report age, button, options */
+.refresh-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.btn.small { padding: 3px 10px; font-size: .85rem; }
+.stock-back { text-align: right; margin: 0 0 8px; font-size: .9rem; }
+.ss-refresh { margin-left: 8px; font-size: 1rem; } .ss-refresh:disabled { opacity: .5; cursor: default; }

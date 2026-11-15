@@ -9,6 +9,11 @@ const FIELDS = [
   ["max_fundamentals_age", "fundamentals", "Fundamentals"],
 ];
 
+/** "14 Nov" from an ISO timestamp, in the viewer's time zone. */
+export function shortDate(iso) {
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
 /** Starts a run for `stock` (with optional reuse limits) and opens its progress page. */
 export function useStartRun(stock) {
   const navigate = useNavigate();
@@ -29,43 +34,45 @@ export function useStartRun(stock) {
   return { start, busy, error };
 }
 
-/** "Run analysis" button with the per-agent report-reuse limits under an Advanced toggle. */
-export default function RunPanel({ stock, latest }) {
+/**
+ * The one place to (re-)run the analysis: the report's age, a "Refresh analysis" button and, under Options,
+ * how recent a stored news / macro / fundamentals report may be to be reused. `children` go at the end of the row.
+ */
+export default function RefreshControl({ stock, asOf, children }) {
   const { data: config } = useAsync(() => api.config(), []);
   const [ages, setAges] = useState({});
-  const [advanced, setAdvanced] = useState(false);
-  const { start: startRun, busy, error } = useStartRun(stock);
+  const [open, setOpen] = useState(false);
+  const { start, busy, error } = useStartRun(stock);
 
-  function start() {
+  function run() {
     const limits = {};
     for (const [key] of FIELDS) {
       if (ages[key] !== undefined && ages[key] !== "") limits[key] = Number(ages[key]);
     }
-    startRun(limits);
+    start(limits);
   }
 
   const canRun = config?.can_run;
   return (
-    <div className="runpanel">
-      <div className="runpanel-main">
-        <button className="btn primary" onClick={start} disabled={busy || !canRun}>
-          {busy ? "Starting…" : "Run analysis"}
+    <div className="refresh">
+      <div className="refresh-row">
+        <span>{asOf ? `Report as of ${shortDate(asOf)} · ${ago(asOf)}` : "Not analysed yet"}</span>
+        <button className="btn primary small" onClick={run} disabled={busy || !canRun}
+                title="Re-runs the outlook, reusing recent news, macro and fundamentals reports (see Options)">
+          {busy ? "Starting…" : asOf ? "Refresh analysis ↻" : "Run analysis"}
         </button>
-        <span className="muted small">
-          {config && !canRun ? config.reason
-            : latest ? `Last analysed ${ago(latest.created_at)}. Recent news, macro and fundamentals reports are reused.`
-            : "Runs news, macro and fundamentals analyses, then the outlook. Takes a minute or two."}
-        </span>
+        <button className="linklike" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? "Hide options" : "Options"}
+        </button>
         <span className="spacer" />
-        <button className="linklike" onClick={() => setAdvanced(!advanced)} aria-expanded={advanced}>
-          {advanced ? "Hide options" : "Options"}
-        </button>
+        {children}
       </div>
-      {advanced && (
+      {config && !canRun && <p className="muted small">{config.reason}</p>}
+      {open && (
         <div className="runpanel-options">
           <p className="muted small">
             Reuse a stored report if it is younger than this many hours; <b>0</b> always re-runs that agent.
-            {config && model(config)}
+            {canRun && ` Model: ${config.provider} / ${config.model}.`}
           </p>
           {FIELDS.map(([key, kind, label]) => (
             <label key={key}>
@@ -80,8 +87,4 @@ export default function RunPanel({ stock, latest }) {
       {error && <p className="error">{error}</p>}
     </div>
   );
-}
-
-function model(config) {
-  return config.can_run ? ` Model: ${config.provider} / ${config.model}.` : "";
 }

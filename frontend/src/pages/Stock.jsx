@@ -3,9 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { AGENT_LABELS, api } from "../api.js";
 import { useAsync } from "../hooks.js";
 import ReportView from "../components/ReportView.jsx";
-import RunPanel from "../components/RunPanel.jsx";
+import RefreshControl from "../components/RefreshControl.jsx";
 import RunList from "../components/RunList.jsx";
-import StockSummary from "../components/StockSummary.jsx";
+import StockSummary, { hasSummary } from "../components/StockSummary.jsx";
 
 // The most recent stock-specific report (the macro report is market-wide, not part of this company's history).
 function newest(latest) {
@@ -79,17 +79,26 @@ export default function Stock() {
   if (loading) return <p className="muted">Loading…</p>;
   if (error) return <p className="error">{error.message}</p>;
 
+  // With a card, it already names the company and holds the refresh control. Without one (reports that predate
+  // the structured blocks, or no reports at all) the page falls back to a heading and a standalone control.
+  const showCard = hasSummary(data.overview);
   return (
     <section>
-      <div className="section-head">
-        <h1>{symbol}</h1>
-        <Link to="/">New search</Link>
-      </div>
-      {data.overview && (
-        <StockSummary overview={data.overview} symbol={symbol} tabs={tabs}
+      {showCard ? (
+        <div className="stock-back"><Link to="/">New search</Link></div>
+      ) : (
+        <>
+          <div className="section-head">
+            <h1>{symbol}</h1>
+            <Link to="/">New search</Link>
+          </div>
+          <div className="runpanel"><RefreshControl stock={symbol} asOf={newest(data.latest)?.created_at} /></div>
+        </>
+      )}
+      {showCard && (
+        <StockSummary overview={data.overview} symbol={symbol}
                       onOpenTab={(agent, pattern) => { setTab(agent); setJump({ agent, pattern }); }} />
       )}
-      <RunPanel stock={symbol} latest={newest(data.latest)} />
       {tabs.length === 0 ? (
         <p className="muted">No stored reports for {symbol} yet.</p>
       ) : (

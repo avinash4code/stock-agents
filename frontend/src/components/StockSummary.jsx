@@ -1,15 +1,10 @@
 import { useState } from "react";
-import { useStartRun } from "./RunPanel.jsx";
-import { AGENT_LABELS, api } from "../api.js";
+import RefreshControl from "./RefreshControl.jsx";
+import { api } from "../api.js";
 
 const inr = (n, digits = 0) => n.toLocaleString("en-IN", { maximumFractionDigits: digits });
 const STANCES = { positive: "Positive", neutral: "Neutral", negative: "Negative" };
 const HORIZONS = [["short", "Short"], ["medium", "Medium"], ["long", "Long"]];
-
-/** "14 Nov" from an ISO timestamp, in the viewer's time zone. */
-function shortDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
 
 export function StanceBadge({ stance, confidence }) {
   if (!STANCES[stance]) return <span className="muted">n/a</span>;
@@ -36,7 +31,7 @@ export function Dots({ rating }) {
   );
 }
 
-/** The ↻ next to the price: fetches Screener's latest close (no LLM) and shows it in place. */
+/** The ↻ next to the price: fetches Screener's latest close (one request, no LLM) and shows it in place. */
 function usePriceRefresh(symbol) {
   const [live, setLive] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -50,7 +45,8 @@ function usePriceRefresh(symbol) {
   return { live, busy, error, refresh };
 }
 
-function Header({ snapshot, symbol, price }) {
+function Header({ snapshot, symbol }) {
+  const price = usePriceRefresh(symbol);
   const s = price.live
     ? { ...snapshot, price: price.live.price, change_pct: price.live.change_pct, price_as_of: price.live.as_of }
     : snapshot;
@@ -134,64 +130,57 @@ function Pillars({ pillars, onOpen }) {
   );
 }
 
+const CARDS = [
+  ["flags", "⚠", "Top red flags"],
+  ["strengths", "✓", "Top strengths"],
+  ["watch", "◉", "Watch next quarter"],
+];
+
+/** Three always-visible cards (red / green / blue), up to three bullets each. */
 function Lists({ red, strengths, watch }) {
-  const groups = [
-    ["⚠", "Top red flags", red, "flags"],
-    ["✓", "Top strengths", strengths, "strengths"],
-    ["◉", "Watch next quarter", watch, "watch"],
-  ].filter(([, , items]) => items?.length);
-  if (!groups.length) return null;
+  const items = { flags: red, strengths, watch };
+  if (!CARDS.some(([kind]) => items[kind]?.length)) return null;
   return (
-    <div className="ss-lists">
-      {groups.map(([icon, title, items, kind]) => (
-        <details key={kind} className={kind}>
-          <summary><span aria-hidden="true">{icon}</span> {title}{kind !== "watch" ? ` (${items.length})` : ""}</summary>
-          <ul>{items.map((t, i) => <li key={i}>{t}</li>)}</ul>
-        </details>
+    <div className="ss-cards">
+      {CARDS.map(([kind, icon, title]) => (
+        <section key={kind} className={`ss-card ${kind}`} aria-label={title}>
+          <h3><span aria-hidden="true">{icon}</span> {title}</h3>
+          {items[kind]?.length
+            ? <ul>{items[kind].slice(0, 3).map((t, i) => <li key={i}>{t}</li>)}</ul>
+            : <p className="muted small">None noted</p>}
+        </section>
       ))}
     </div>
   );
+}
+
+/** Whether the card has anything to draw (reports written before the structured blocks have none). */
+export function hasSummary(overview) {
+  return !!(overview?.snapshot || overview?.outlook?.structured?.company || overview?.fundamentals?.structured?.pillars);
 }
 
 /**
  * The card at the top of a stock's page, drawn from the agents' structured blocks (no prose parsing).
  * Every part is optional: reports written before the blocks existed simply show less.
  */
-export default function StockSummary({ overview, symbol, tabs, onOpenTab }) {
-  const { start, busy, error } = useStartRun(symbol);
-  const price = usePriceRefresh(symbol);
-  const [confirm, setConfirm] = useState(false);
+export default function StockSummary({ overview, symbol, onOpenTab }) {
+  if (!hasSummary(overview)) return null;
   const snapshot = overview.snapshot;
   const outlook = overview.outlook?.structured;
   const fund = overview.fundamentals?.structured;
-  if (!snapshot && !outlook?.company && !fund?.pillars) return null;
-
   const headline = outlook?.headline || fund?.headline;
   return (
     <section className="summary" aria-label="Summary">
-      {snapshot && <Header snapshot={snapshot} symbol={symbol} price={price} />}
+      {snapshot && <Header snapshot={snapshot} symbol={symbol} />}
       {outlook?.company && <Overall company={outlook.company} headline={headline} />}
       {!outlook?.company && headline && <p className="ss-quote">“{headline}”</p>}
       {fund?.pillars?.length > 0 && <Pillars pillars={fund.pillars} onOpen={onOpenTab} />}
       <Lists red={fund?.red_flags} strengths={fund?.strengths} watch={fund?.watch_next_quarter} />
-      {tabs.length > 0 && (
-        <div className="ss-links">
-          <span className="ss-label">Detailed analysis ▸</span>
-          {tabs.map((a, i) => (
-            <span key={a}>{i > 0 && " · "}<button className="linklike" onClick={() => onOpenTab(a)}>{AGENT_LABELS[a]}</button></span>
-          ))}
-        </div>
-      )}
       <div className="ss-foot muted small">
-        <span>{overview.as_of ? `Report as of ${shortDate(overview.as_of)}` : ""}</span>
-        <button className="linklike" disabled={busy} onClick={() => (confirm ? (setConfirm(false), start({ max_news_age: 0, max_macro_age: 0, max_fundamentals_age: 0 })) : setConfirm(true))}
-                onBlur={() => setConfirm(false)} title="Re-runs every agent and fetches fresh figures">
-          {busy ? "Starting…" : confirm ? "Re-run all agents?" : "Refresh ↻"}
-        </button>
-        <span className="spacer" />
-        <span>Not investment advice</span>
+        <RefreshControl stock={symbol} asOf={overview.as_of}>
+          <span>Not investment advice</span>
+        </RefreshControl>
       </div>
-      {error && <p className="error">{error}</p>}
     </section>
   );
 }
