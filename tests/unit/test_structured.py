@@ -179,3 +179,28 @@ def test_prompts_ask_for_the_block():
 
     for prompt in (news, macro, outlook):
         assert "```json" in prompt
+
+
+# -- plain-language evidence with the technical detail kept for a tooltip -------------------------
+
+def test_pillar_detail_is_optional_and_kept_when_given():
+    data = fundamentals()
+    data["pillars"][3].update(evidence="Earned ₹272 Cr profit but lost ₹105 Cr in cash", detail="CFO/PAT -0.4x; FY26 CFO -105 Cr")
+    _, out = structured.extract("fundamentals", block(data), profile=GENERAL)
+    cash = next(p for p in out["pillars"] if p["key"] == "cash_flow")
+    assert cash["evidence"].startswith("Earned") and cash["detail"] == "CFO/PAT -0.4x; FY26 CFO -105 Cr"
+    assert all(p["detail"] == "" for p in out["pillars"] if p["key"] != "cash_flow")  # older-style blocks still validate
+
+
+def test_overlong_detail_is_rejected():
+    data = fundamentals()
+    data["pillars"][0]["detail"] = "x" * 201
+    assert structured.extract("fundamentals", block(data), profile=GENERAL)[1] is None
+
+
+def test_prompt_asks_for_plain_evidence_and_technical_detail():
+    text = structured.instructions("fundamentals", GENERAL)
+    assert '"detail"' in text and "plain-language" in text and "first-time retail investor" in text
+    for jargon in ("CFO", "ROCE", "P/E"):
+        assert jargon in text  # named only so the model knows to translate them
+    assert "plain-language" not in structured.instructions("news")

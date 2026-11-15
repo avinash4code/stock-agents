@@ -122,11 +122,13 @@ function Pillars({ pillars, onOpen }) {
       {pillars.map((p) => (
         <li key={p.key}>
           <button className="ss-pillar" onClick={() => onOpen("fundamentals", PILLAR_TARGETS[p.key])}
-                  title={`Open ${p.label || p.key} in the Fundamentals report`}>
+                  aria-describedby={p.detail ? `tip-${p.key}` : undefined}
+                  title={p.detail ? undefined : `Open ${p.label || p.key} in the Fundamentals report`}>
             <span className="ss-pname">{p.label || p.key}</span>
             <Dots rating={p.rating} />
-            <span className="ss-evidence">{p.evidence}</span>
+            <span className={`ss-evidence${p.detail ? " has-detail" : ""}`}>{p.evidence}</span>
           </button>
+          {p.detail && <span id={`tip-${p.key}`} role="tooltip" className="ss-tip">{p.detail}</span>}
         </li>
       ))}
     </ul>

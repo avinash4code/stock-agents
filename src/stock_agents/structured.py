@@ -57,7 +57,8 @@ class Pillar(_Base):
     key: str
     label: str = ""  # filled in from the profile, never taken from the model
     rating: int | None = Field(default=None, ge=1, le=5)
-    evidence: str = Field(default="", max_length=160)
+    evidence: str = Field(default="", max_length=160)  # plain language, shown on the card
+    detail: str = Field(default="", max_length=200)  # the technical figures behind it, shown in a tooltip
 
 
 class FundamentalsSummary(_Summary):
@@ -108,13 +109,28 @@ _COMMON = (
 _SHAPES = {
     "news": '{' + _COMMON + ', "red_flags": ["up to 3 short items"], "catalysts": ["up to 3 short items"]}',
     "macro": '{' + _COMMON + ', "red_flags": ["up to 3 short risks"], "themes": ["up to 3 short themes"]}',
-    "fundamentals": '{' + _COMMON + ', "pillars": [{"key": "...", "rating": 1-5 or null, "evidence": "at most 12 words '
-                    'quoting figures from the tables"}], "red_flags": ["top 3, short"], "strengths": ["top 3, short"], '
+    "fundamentals": '{' + _COMMON + ', "pillars": [{"key": "...", "rating": 1-5 or null, "evidence": "plain-language '
+                    'sentence, at most 15 words", "detail": "the technical figures behind it, at most 20 words"}], "red_flags": ["top 3, short"], "strengths": ["top 3, short"], '
                     '"watch_next_quarter": ["up to 3 quantified thresholds"]}',
     "outlook": '{"version": 1, "headline": "one sentence, at most 25 words", '
                '"company": {"short": H, "medium": H, "long": H}, "sector": {"short": H, "medium": H, "long": H}} '
                'where H is {"stance": "positive|neutral|negative", "confidence": "low|medium|high"}',
 }
+
+
+PLAIN_EVIDENCE = (
+    'Write each pillar\'s "evidence" for a first-time retail investor: one plain sentence saying what is happening '
+    "to the business or to the shareholder, using rupee amounts from the tables (write them as ₹272 Cr in this block only) "
+    "and no abbreviations or ratios. Say it in everyday words: for example \"cash from operations\" instead of CFO, "
+    '"profit" instead of PAT, "what the company owes" instead of debt-to-equity, "return on money invested" instead of '
+    'ROCE, "price compared with profit" instead of P/E, "foreign funds" and "Indian institutions" instead of FII and DII. '
+    'Put the technical figures in "detail" instead, e.g. ratios, growth rates and the table rows they come from. '
+    "Examples of the style (illustrative numbers only; use the real figures): "
+    '"Earned ₹80 Cr profit but only ₹30 Cr of it arrived as cash"; '
+    '"Owes little: borrowings are a tenth of what shareholders own"; '
+    '"Shares cost more than similar companies relative to profit". '
+    "Never copy the example numbers."
+)
 
 
 def instructions(agent: str, profile: PillarProfile | None = None) -> str:
@@ -124,6 +140,8 @@ def instructions(agent: str, profile: PillarProfile | None = None) -> str:
         f"conclusions in exactly this shape:\n{_SHAPES[agent]}\n"
         "The block must agree with the report. Use only the keys shown; use plain text in strings."
     )
+    if agent == "fundamentals":
+        text += "\n" + PLAIN_EVIDENCE
     if agent == "outlook":
         text += " The company stances are the overall verdict for each horizon; the headline is the one-line takeaway."
     if profile is not None:
