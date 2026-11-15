@@ -100,14 +100,34 @@ function Overall({ company, headline }) {
   );
 }
 
-function Pillars({ pillars }) {
+/**
+ * Where each pillar's row leads in the Fundamentals report: the heading (by its text, matched case-insensitively)
+ * that discusses it. Cash-flow pillars go to the cash flow table, which holds the figures the evidence quotes.
+ */
+export const PILLAR_TARGETS = {
+  growth: /^growth$/i,
+  profitability: /^profitability/i,
+  balance_sheet: /^balance sheet (&|and) capital/i,
+  leverage: /^balance sheet (&|and) capital/i,
+  capital: /^balance sheet (&|and) capital/i,
+  asset_quality: /^balance sheet (&|and) capital/i,
+  cash_flow: /^cash flow/i,
+  capex_funding: /^cash flow/i,
+  valuation: /^versus peers/i,
+  ownership: /^shareholding (&|and) governance/i,
+};
+
+function Pillars({ pillars, onOpen }) {
   return (
     <ul className="ss-pillars">
       {pillars.map((p) => (
         <li key={p.key}>
-          <span className="ss-pname">{p.label || p.key}</span>
-          <Dots rating={p.rating} />
-          <span className="ss-evidence">{p.evidence}</span>
+          <button className="ss-pillar" onClick={() => onOpen("fundamentals", PILLAR_TARGETS[p.key])}
+                  title={`Open ${p.label || p.key} in the Fundamentals report`}>
+            <span className="ss-pname">{p.label || p.key}</span>
+            <Dots rating={p.rating} />
+            <span className="ss-evidence">{p.evidence}</span>
+          </button>
         </li>
       ))}
     </ul>
@@ -152,7 +172,7 @@ export default function StockSummary({ overview, symbol, tabs, onOpenTab }) {
       {snapshot && <Header snapshot={snapshot} symbol={symbol} price={price} />}
       {outlook?.company && <Overall company={outlook.company} headline={headline} />}
       {!outlook?.company && headline && <p className="ss-quote">“{headline}”</p>}
-      {fund?.pillars?.length > 0 && <Pillars pillars={fund.pillars} />}
+      {fund?.pillars?.length > 0 && <Pillars pillars={fund.pillars} onOpen={onOpenTab} />}
       <Lists red={fund?.red_flags} strengths={fund?.strengths} watch={fund?.watch_next_quarter} />
       {tabs.length > 0 && (
         <div className="ss-links">

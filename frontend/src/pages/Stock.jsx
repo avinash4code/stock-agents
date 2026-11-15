@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AGENT_LABELS, api } from "../api.js";
 import { useAsync } from "../hooks.js";
@@ -22,10 +22,42 @@ function LatestReport({ id }) {
   return <ReportView report={data} />;
 }
 
+/** Scrolls to the first report heading whose text matches `pattern`, waiting for the report to finish loading. */
+function useJumpTo(jump, ready, fallbackRef, clear) {
+  useEffect(() => {
+    if (!jump || !ready) return undefined;
+    let tries = 0;
+    let timer;
+    const attempt = () => {
+      if (!jump.pattern) {  // a plain tab link: just bring the tabs into view
+        fallbackRef.current?.scrollIntoView({ behavior: "smooth" });
+        clear();
+        return;
+      }
+      const heading = [...document.querySelectorAll(".md h2, .md h3")]
+        .find((h) => jump.pattern.test(h.textContent.trim()));
+      if (heading) {
+        heading.scrollIntoView({ behavior: "smooth", block: "start" });
+        heading.classList.add("jump-flash");
+        setTimeout(() => heading.classList.remove("jump-flash"), 1800);
+        clear();
+      } else if (++tries < 40) {
+        timer = setTimeout(attempt, 100);  // the report is fetched when its tab opens
+      } else {
+        fallbackRef.current?.scrollIntoView({ behavior: "smooth" });  // an older report with other headings
+        clear();
+      }
+    };
+    attempt();
+    return () => clearTimeout(timer);
+  }, [jump, ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 export default function Stock() {
   const { symbol } = useParams();
   const [tab, setTab] = useState(null);
   const tabsRef = useRef(null);
+  const [jump, setJump] = useState(null);
   const { data, error, loading } = useAsync(async () => {
     const [stockReports, macro, runs, overview] = await Promise.all([
       api.reports({ stock: symbol, limit: 100 }),
@@ -40,10 +72,12 @@ export default function Stock() {
     return { latest, runs, overview };
   }, [symbol]);
 
+  const tabs = data ? ORDER.filter((a) => data.latest[a]) : [];
+  const current = tabs.includes(tab) ? tab : tabs[0];
+  useJumpTo(jump, !!jump && !!data && jump.agent === current, tabsRef, () => setJump(null));  // hooks stay above the early returns
+
   if (loading) return <p className="muted">Loading…</p>;
   if (error) return <p className="error">{error.message}</p>;
-  const tabs = ORDER.filter((a) => data.latest[a]);
-  const current = tabs.includes(tab) ? tab : tabs[0];
 
   return (
     <section>
@@ -53,7 +87,7 @@ export default function Stock() {
       </div>
       {data.overview && (
         <StockSummary overview={data.overview} symbol={symbol} tabs={tabs}
-                      onOpenTab={(a) => { setTab(a); tabsRef.current?.scrollIntoView({ behavior: "smooth" }); }} />
+                      onOpenTab={(agent, pattern) => { setTab(agent); setJump({ agent, pattern }); }} />
       )}
       <RunPanel stock={symbol} latest={newest(data.latest)} />
       {tabs.length === 0 ? (

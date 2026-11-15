@@ -131,7 +131,6 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .stance i { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .stance.positive i { background: var(--ok); } .stance.neutral i { background: var(--warn); } .stance.negative i { background: var(--bad); }
 .ss-pillars { list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 6px; }
-.ss-pillars li { display: grid; grid-template-columns: 9.5rem 9rem 1fr; gap: 12px; align-items: center; }
 .ss-pname { font-weight: 600; }
 .ss-evidence { color: var(--muted); }
 .rating { display: inline-flex; align-items: center; gap: 8px; --tone: var(--muted); } .rating.none { color: var(--muted); }
@@ -146,7 +145,17 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .ss-lists ul { margin: 6px 0 0; padding-left: 20px; max-width: 34ch; }
 .ss-links { margin: 6px 0; }
 .ss-foot { display: flex; gap: 16px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-@media (max-width: 640px) { .ss-pillars li { grid-template-columns: 8rem 9rem; } .ss-evidence { grid-column: 1 / -1; } .ss-price { text-align: left; } }
+@media (max-width: 640px) { .ss-price { text-align: left; } }
 .ss-lists summary { list-style: none; } .ss-lists summary::-webkit-details-marker { display: none; }
 .ss-lists details[open] summary { text-decoration: underline; }
 .ss-refresh { margin-left: 8px; font-size: 1rem; } .ss-refresh:disabled { opacity: .5; cursor: default; }
+
+/* Pillar rows are buttons that jump to the matching report section */
+.ss-pillars li { display: block; }
+.ss-pillar { display: grid; grid-template-columns: 9.5rem 9rem 1fr; gap: 12px; align-items: center; width: 100%; padding: 4px 8px; margin: 0 -8px; box-sizing: content-box; font: inherit; color: inherit; text-align: left; background: none; border: 0; border-radius: 8px; cursor: pointer; }
+.ss-pillar:hover, .ss-pillar:focus-visible { background: var(--accent-soft); }
+.ss-pillar:hover .ss-pname, .ss-pillar:focus-visible .ss-pname { text-decoration: underline; }
+.md h2, .md h3 { scroll-margin-top: 72px; }
+@keyframes jump-flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.jump-flash { animation: jump-flash 1.8s ease-out; }
+@media (max-width: 640px) { .ss-pillar { grid-template-columns: 8rem 9rem; } .ss-pillar .ss-evidence { grid-column: 1 / -1; } }
