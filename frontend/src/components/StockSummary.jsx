@@ -4,14 +4,19 @@ import { api } from "../api.js";
 
 const inr = (n, digits = 0) => n.toLocaleString("en-IN", { maximumFractionDigits: digits });
 const STANCES = { positive: "Positive", neutral: "Neutral", negative: "Negative" };
-const HORIZONS = [["short", "Short"], ["medium", "Medium"], ["long", "Long"]];
+const HORIZONS = [["short", "Short term", "up to 3 months"], ["medium", "Medium term", "3 to 12 months"], ["long", "Long term", "over 1 year"]];
 
-export function StanceBadge({ stance, confidence }) {
-  if (!STANCES[stance]) return <span className="muted">n/a</span>;
+/** One horizon's verdict: the stance large and tinted by its colour, with the confidence beside it. */
+export function StanceChip({ label, span, stance, confidence }) {
+  const known = !!STANCES[stance];
   return (
-    <span className={`stance ${stance}`} title={confidence ? `Confidence: ${confidence}` : undefined}>
-      <i aria-hidden="true" />{STANCES[stance]}
-    </span>
+    <div className={`ss-chip ${known ? stance : "none"}`} title={`${label}: ${span}`}>
+      <span className="ss-chip-h">{label}</span>
+      <span className="ss-chip-v">
+        <i aria-hidden="true" />{known ? STANCES[stance] : "n/a"}
+        {known && confidence && <span className="ss-chip-c"> · {confidence[0].toUpperCase() + confidence.slice(1)} confidence</span>}
+      </span>
+    </div>
   );
 }
 
@@ -85,11 +90,9 @@ function Header({ snapshot, symbol }) {
 function Overall({ company, headline }) {
   return (
     <div className="ss-overall">
-      <div className="ss-horizons">
-        <span className="ss-label">Overall</span>
-        {HORIZONS.map(([key, label]) => (
-          <span key={key}>{label} <StanceBadge {...company[key]} /></span>
-        ))}
+      <div className="ss-overall-h">Overall</div>
+      <div className="ss-chips">
+        {HORIZONS.map(([key, label, span]) => <StanceChip key={key} label={label} span={span} {...company[key]} />)}
       </div>
       {headline && <p className="ss-quote">“{headline}”</p>}
     </div>
