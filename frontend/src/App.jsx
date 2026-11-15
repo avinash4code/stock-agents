@@ -4,6 +4,7 @@ import Stock from "./pages/Stock.jsx";
 import History from "./pages/History.jsx";
 import RunPage from "./pages/RunPage.jsx";
 import ReportPage from "./pages/ReportPage.jsx";
+import ScrollToTop from "./components/ScrollToTop.jsx";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="*" element={<p className="muted">Page not found.</p>} />
         </Routes>
       </main>
+      <ScrollToTop />
     </>
   );
 }

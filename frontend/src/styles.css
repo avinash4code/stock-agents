@@ -91,7 +91,7 @@ table.runs td.chips { min-width: 220px; }
   .md { padding: 4px 16px 16px; } .topbar { padding: 10px 16px; }
 }
 @media print {
-  .topbar, .toc, .btn, .tabs, .report-inputs, .section-head a { display: none !important; }
+  .topbar, .toc, .btn, .tabs, .report-inputs, .section-head a, .to-top { display: none !important; }
   body, .md { background: #fff; color: #000; border: 0; }
   .report-body { display: block; } .md { padding: 0; }
 }
@@ -182,3 +182,7 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .spark circle { fill: var(--muted); }
 .spark.up polyline { stroke: var(--ok); } .spark.up circle { fill: var(--ok); }
 .spark.down polyline { stroke: var(--bad); } .spark.down circle { fill: var(--bad); }
+
+/* Back-to-top button */
+.to-top { position: fixed; right: 20px; bottom: 20px; z-index: 20; width: 42px; height: 42px; font-size: 1.2rem; line-height: 1; color: #fff; background: var(--accent); border: 0; border-radius: 50%; box-shadow: var(--shadow); cursor: pointer; }
+.to-top:hover { filter: brightness(1.1); } .to-top:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
