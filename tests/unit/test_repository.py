@@ -118,3 +118,18 @@ def test_report_remembers_its_provider_and_model(repo):
     assert (repo.get(rid).provider, repo.get(rid).model) == ("anthropic", "claude-sonnet-5-5")
     plain = repo.save_report(repo.run_id, "macro", "m")  # e.g. imported from a file: unknown
     assert (repo.get(plain).provider, repo.get(plain).model) == (None, None)
+
+
+def test_structured_block_roundtrips_and_is_none_when_absent(repo):
+    block = {"version": 1, "stance": "neutral", "pillars": [{"key": "growth", "rating": 4}]}
+    with_block = repo.save_report(repo.run_id, "fundamentals", "b", stock="TCS", structured=block, created_at=T0)
+    without = repo.save_report(repo.run_id, "news", "b", stock="TCS", created_at=T0)
+    assert repo.get(with_block).structured == block
+    assert repo.get(without).structured is None
+    assert repo.latest("fundamentals", "TCS").structured == block
+
+
+def test_unreadable_stored_json_is_treated_as_no_structure(repo):
+    rid = repo.save_report(repo.run_id, "news", "b", stock="TCS", created_at=T0)
+    repo.conn.execute("UPDATE reports SET structured_json = '{oops' WHERE id = ?", (rid,))
+    assert repo.get(rid).structured is None

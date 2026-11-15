@@ -74,6 +74,11 @@ MIGRATIONS = [
     ALTER TABLE reports ADD COLUMN model TEXT;
     UPDATE reports SET provider = 'deepseek', model = 'deepseek-flash';
     """,
+    # 4: the small structured block (stance, pillar ratings, flags, ...) each agent returns next to its markdown,
+    # as JSON text. NULL for reports written before it existed, or whose block was missing or invalid.
+    """
+    ALTER TABLE reports ADD COLUMN structured_json TEXT;
+    """,
 ]
 
 

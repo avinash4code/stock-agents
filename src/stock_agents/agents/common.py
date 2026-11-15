@@ -9,6 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from stock_agents import structured
+from stock_agents.pillars import PillarProfile
 from stock_agents.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,7 @@ class AgentResult:
     truncated: bool = False
     input_tokens: int | None = None
     output_tokens: int | None = None
+    structured: dict | None = None  # the validated JSON block, if the agent produced a usable one
 
     def meta(self) -> dict:
         """Everything except the text, as stored alongside the report."""
@@ -64,6 +67,7 @@ class AgentResult:
             "truncated": self.truncated,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "structured": self.structured,
         }
 
 
@@ -75,8 +79,14 @@ def total_usage(messages) -> tuple[int | None, int | None]:
     return sum(u.get("input_tokens", 0) for u in usages), sum(u.get("output_tokens", 0) for u in usages)
 
 
-def run_agent(agent, task: str) -> AgentResult:
+def run_agent(
+    agent, task: str, *, summary: str | None = None, profile: PillarProfile | None = None,
+    repair_llm: BaseChatModel | None = None,
+) -> AgentResult:
     """Run an agent on a fresh conversation and return its final text plus run details.
+
+    With `summary` (an agent name from `structured.MODELS`) the reply's trailing ```json block is split off
+    into `AgentResult.structured`; `repair_llm` is used once if that block is missing or invalid.
 
     If the final reply was cut off by the token limit (or came back empty because
     reasoning used the whole budget), a visible warning is added to the report text.
@@ -98,4 +108,8 @@ def run_agent(agent, task: str) -> AgentResult:
     if truncated:
         logger.warning("Agent reply truncated by the output token limit; raise LLM_MAX_TOKENS.")
         text = f"{text.rstrip()}\n\n{TRUNCATION_NOTE}" if text.strip() else TRUNCATION_NOTE
-    return AgentResult(text, truncated, input_tokens, output_tokens)
+        return AgentResult(text, truncated, input_tokens, output_tokens)  # a cut-off reply has no usable block
+    data = None
+    if summary and text.strip():
+        text, data = structured.extract(summary, text, profile=profile, repair_llm=repair_llm)
+    return AgentResult(text, truncated, input_tokens, output_tokens, data)

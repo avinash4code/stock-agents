@@ -9,29 +9,39 @@ const FIELDS = [
   ["max_fundamentals_age", "fundamentals", "Fundamentals"],
 ];
 
-/** "Run analysis" button with the per-agent report-reuse limits under an Advanced toggle. */
-export default function RunPanel({ stock, latest }) {
+/** Starts a run for `stock` (with optional reuse limits) and opens its progress page. */
+export function useStartRun(stock) {
   const navigate = useNavigate();
-  const { data: config } = useAsync(() => api.config(), []);
-  const [ages, setAges] = useState({});
-  const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  async function start() {
+  async function start(limits = {}) {
     setBusy(true);
     setError(null);
-    const body = { stock };
-    for (const [key] of FIELDS) {
-      if (ages[key] !== undefined && ages[key] !== "") body[key] = Number(ages[key]);
-    }
     try {
-      const { run_id } = await api.startRun(body);
+      const { run_id } = await api.startRun({ stock, ...limits });
       navigate(`/run/${run_id}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) navigate(`/run/${e.detail.run_id}`);  // already running: follow it
       else { setError(e.message); setBusy(false); }
     }
+  }
+  return { start, busy, error };
+}
+
+/** "Run analysis" button with the per-agent report-reuse limits under an Advanced toggle. */
+export default function RunPanel({ stock, latest }) {
+  const { data: config } = useAsync(() => api.config(), []);
+  const [ages, setAges] = useState({});
+  const [advanced, setAdvanced] = useState(false);
+  const { start: startRun, busy, error } = useStartRun(stock);
+
+  function start() {
+    const limits = {};
+    for (const [key] of FIELDS) {
+      if (ages[key] !== undefined && ages[key] !== "") limits[key] = Number(ages[key]);
+    }
+    startRun(limits);
   }
 
   const canRun = config?.can_run;

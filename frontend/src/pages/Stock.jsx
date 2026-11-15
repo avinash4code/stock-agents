@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AGENT_LABELS, api } from "../api.js";
 import { useAsync } from "../hooks.js";
 import ReportView from "../components/ReportView.jsx";
 import RunPanel from "../components/RunPanel.jsx";
 import RunList from "../components/RunList.jsx";
+import StockSummary from "../components/StockSummary.jsx";
 
 // The most recent stock-specific report (the macro report is market-wide, not part of this company's history).
 function newest(latest) {
@@ -24,17 +25,19 @@ function LatestReport({ id }) {
 export default function Stock() {
   const { symbol } = useParams();
   const [tab, setTab] = useState(null);
+  const tabsRef = useRef(null);
   const { data, error, loading } = useAsync(async () => {
-    const [stockReports, macro, runs] = await Promise.all([
+    const [stockReports, macro, runs, overview] = await Promise.all([
       api.reports({ stock: symbol, limit: 100 }),
       api.reports({ agent: "macro", limit: 1 }),
       api.runs({ stock: symbol, limit: 10 }),
+      api.overview(symbol).catch(() => null),  // the card is optional; the tabs still work without it
     ]);
     const latest = {};
     for (const r of [...stockReports, ...macro]) {
       if (!latest[r.agent] || r.created_at > latest[r.agent].created_at) latest[r.agent] = r;
     }
-    return { latest, runs };
+    return { latest, runs, overview };
   }, [symbol]);
 
   if (loading) return <p className="muted">Loading…</p>;
@@ -48,12 +51,16 @@ export default function Stock() {
         <h1>{symbol}</h1>
         <Link to="/">New search</Link>
       </div>
+      {data.overview && (
+        <StockSummary overview={data.overview} symbol={symbol} tabs={tabs}
+                      onOpenTab={(a) => { setTab(a); tabsRef.current?.scrollIntoView({ behavior: "smooth" }); }} />
+      )}
       <RunPanel stock={symbol} latest={newest(data.latest)} />
       {tabs.length === 0 ? (
         <p className="muted">No stored reports for {symbol} yet.</p>
       ) : (
         <>
-          <div className="tabs" role="tablist">
+          <div className="tabs" role="tablist" ref={tabsRef}>
             {tabs.map((a) => (
               <button key={a} role="tab" aria-selected={a === current} className={a === current ? "on" : ""} onClick={() => setTab(a)}>
                 {AGENT_LABELS[a]}

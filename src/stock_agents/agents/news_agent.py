@@ -8,6 +8,7 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from stock_agents.agents.common import build_tool_agent, run_agent
+from stock_agents import structured
 from stock_agents.articles import read_article
 from stock_agents.news import get_stock_news
 from stock_agents.state import WorkflowState
@@ -21,7 +22,11 @@ Then call read_article on the 2-3 most relevant links for fuller detail; if it r
 rely on the headline instead and do not retry that URL.
 Then reply with: a one-line overview, 3-7 bullet points of the most relevant developments \
 (each with source and date, drawing on article text where you read it), and the overall tone of coverage (positive / negative / mixed).
-Only report what the articles say; do not invent facts and do not give investment advice."""
+Only report what the articles say; do not invent facts and do not give investment advice.
+For the JSON block: stance is the overall tone of coverage (mixed = neutral); red_flags are the most worrying \
+items in the news; catalysts are the most important positive or pending events.
+
+""" + structured.instructions("news")
 
 TOOLS = [get_stock_news, read_article]
 
@@ -42,7 +47,7 @@ def news_agent_node(llm: BaseChatModel):
     def node(state: WorkflowState) -> dict:
         if state.get("news_report"):
             return {}
-        result = run_agent(agent, f"Gather the latest news about {state['stock']}.")
+        result = run_agent(agent, f"Gather the latest news about {state['stock']}.", summary="news", repair_llm=llm)
         return {"news_report": result.text, "news_meta": result.meta()}
 
     return node

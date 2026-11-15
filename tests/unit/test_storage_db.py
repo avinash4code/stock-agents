@@ -135,3 +135,18 @@ def test_fresh_database_has_model_columns_and_no_backfilled_rows(tmp_path):
     conn = connect(tmp_path / "a.db")
     assert {"provider", "model"} <= {r[1] for r in conn.execute("PRAGMA table_info(reports)")}
     assert conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
+
+
+def test_migration_4_adds_structured_json_and_leaves_old_reports_without_it(tmp_path):
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("BEGIN;\n" + "\n".join(MIGRATIONS[:3]) + "\nPRAGMA user_version = 3;\nCOMMIT;")
+    raw.execute("INSERT INTO runs (command, started_at) VALUES ('all', 't')")
+    raw.execute("INSERT INTO reports (run_id, agent, stock, stock_key, content_md, created_at)"
+                " VALUES (1, 'news', 'TCS', 'tcs', 'old body', 't')")
+    raw.commit()
+    raw.close()
+
+    conn = connect(path)
+    assert version(conn) == len(MIGRATIONS) >= 4
+    assert conn.execute("SELECT content_md, structured_json FROM reports").fetchone()[:] == ("old body", None)

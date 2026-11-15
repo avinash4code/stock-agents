@@ -6,6 +6,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+from stock_agents import structured
 from stock_agents.agents.common import run_agent
 from stock_agents.state import AgentState, WorkflowState
 
@@ -40,7 +41,9 @@ trends), and what information is missing that could change the view.
 Rules: ground short- and medium-term views mainly in the notes; the long-term view may lean on structural \\
 trends but must say so. If the notes are thin or contradictory, lower your confidence and say why. \\
 Do not invent figures, and do not give buy/sell/hold recommendations or price targets. \\
-This is an analytical outlook, not investment advice."""
+This is an analytical outlook, not investment advice.
+
+""" + structured.instructions("outlook")
 
 MISSING = "(not available)"
 
@@ -73,7 +76,7 @@ def outlook_agent_node(llm: BaseChatModel):
     agent = build_outlook_agent(llm)
 
     def node(state: WorkflowState) -> dict:
-        result = run_agent(agent, build_task(state))
+        result = run_agent(agent, build_task(state), summary="outlook", repair_llm=llm)
         return {"outlook_report": result.text, "outlook_meta": result.meta()}
 
     return node

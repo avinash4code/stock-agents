@@ -16,7 +16,9 @@ from urllib.parse import quote
 import httpx
 from lxml import html
 
-from stock_agents.fundamentals import EMPTY, CompanyFinancials, FundamentalsError, NoFigures, Peer, PeerComparison, Table
+from stock_agents.fundamentals import (
+    EMPTY, CompanyFinancials, FundamentalsError, NoFigures, Peer, PeerComparison, Quote, Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +187,25 @@ def _key_ratios(root) -> dict[str, str]:
     return ratios
 
 
+def _quote(root) -> Quote | None:
+    """Price, day change and close date from the strip under the company name; None if it is not there.
+    Older saved pages have no change or date, so only the price is required."""
+    strip = root.xpath("//div[@id='top']//div[contains(@class,'font-size-18')][1]")
+    if not strip:
+        return None
+    price = parse_number(_text(strip[0], ".//div[contains(@class,'flex')]/span[1]").replace("₹", ""))
+    if price is None:
+        return None
+    change = None
+    cell = strip[0].xpath(".//span[contains(@class,'font-size-12')]")
+    if cell:
+        change = parse_number(_clean(cell[0].text_content()).replace("%", ""))
+        if change is not None and "down" in cell[0].get("class", "") and change > 0:
+            change = -change
+    as_of = _clean(strip[0].xpath("string(./div[contains(@class,'ink-600')])"))
+    return Quote(price=price, change_pct=change, as_of=as_of)
+
+
 def _growth(root) -> dict[str, dict[str, str]]:
     growth = {}
     for table in root.xpath("//table[contains(@class,'ranges-table')]"):
@@ -292,4 +313,5 @@ def parse_company_page(page: str, url: str = "", today: date | None = None) -> C
         company_id=root.xpath("string(//*[@id='company-info']/@data-company-id)"),
         warehouse_id=root.xpath("string(//*[@id='company-info']/@data-warehouse-id)"),
         classification=_classification(root),
+        quote=_quote(root),
     )

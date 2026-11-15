@@ -23,6 +23,15 @@ class NoFigures(FundamentalsError):
 
 
 @dataclass(frozen=True)
+class Quote:
+    """The price strip at the top of Screener's page. Everything but `price` can be missing."""
+
+    price: float | None = None
+    change_pct: float | None = None  # the day's change, signed (-1.43 = down 1.43%)
+    as_of: str = ""  # as Screener words it, e.g. "13 Nov - close price"
+
+
+@dataclass(frozen=True)
 class Table:
     """A table of numbers: one value per period for each labelled row (`None` = blank on the page)."""
 
@@ -116,6 +125,7 @@ class CompanyFinancials:
     warehouse_id: str = ""  # id used by Screener's peer-table endpoint
     classification: list[str] = field(default_factory=list)  # sector > industry, as Screener files the company
     peers: PeerComparison | None = None  # fetched separately; None if unavailable
+    quote: Quote | None = None  # price, day change and the date of the close; None if the page has no price strip
 
     @property
     def is_financial(self) -> bool:

@@ -47,7 +47,7 @@ def save_report(repo: Repository, run_id: int, agent: str, stock: str | None, te
     report_id = repo.save_report(
         run_id, agent, text, stock=stock, truncated=meta.get("truncated", False),
         input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"),
-        provider=agent_cfg.provider, model=agent_cfg.model, **links,
+        provider=agent_cfg.provider, model=agent_cfg.model, structured=meta.get("structured"), **links,
     )
     note = " (INCOMPLETE: hit the token limit)" if meta.get("truncated") else ""
     notify(f"Saved {agent} report #{report_id}{note}")

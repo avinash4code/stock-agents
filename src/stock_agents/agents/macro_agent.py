@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from stock_agents.agents.common import build_tool_agent, run_agent
+from stock_agents import structured
 from stock_agents.articles import read_article
 from stock_agents.news import get_macro_news
 from stock_agents.state import WorkflowState
@@ -30,7 +31,11 @@ which sectors are most affected (e.g. oil marketing, IT, banks, autos) and the l
   ## Other headlines noted - one line each for the themes you scanned but did not read in depth.
   ## Overall tone - positive / negative / mixed for Indian markets, with a short justification and the main \\
 risks to watch.
-Only report what the sources say; do not invent figures and do not give investment advice."""
+Only report what the sources say; do not invent figures and do not give investment advice.
+For the JSON block: stance is the overall tone for Indian markets (mixed = neutral); red_flags are the main \
+risks to watch; themes are the main macro themes driving the market now.
+
+""" + structured.instructions("macro")
 
 TOOLS = [get_macro_news, read_article]
 
@@ -53,7 +58,7 @@ def macro_agent_node(llm: BaseChatModel):
     def node(state: WorkflowState) -> dict:
         if state.get("macro_report"):
             return {}
-        result = run_agent(agent, TASK)
+        result = run_agent(agent, TASK, summary="macro", repair_llm=llm)
         return {"macro_report": result.text, "macro_meta": result.meta()}
 
     return node

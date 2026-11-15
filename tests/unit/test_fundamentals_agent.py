@@ -79,3 +79,45 @@ def test_node_flags_the_report_incomplete_when_the_model_stays_silent():
     out = fundamentals_agent_node(llm("", "  "))({"stock": "TCS"})
     assert "returned no analysis" in out["fundamentals_report"] and "| Sales |" in out["fundamentals_report"]
     assert out["fundamentals_meta"]["truncated"] is True  # so it is never reused
+
+
+# -- structured block ----------------------------------------------------------------------------
+
+import json
+from dataclasses import replace
+
+from stock_agents.agents.fundamentals_agent import system_prompt
+from stock_agents.pillars import FINANCIAL, GENERAL
+
+
+def _block(profile, **over):
+    data = {"version": 1, "stance": "neutral", "confidence": "medium", "headline": "Growth without cash.",
+            "pillars": [{"key": k, "rating": 3, "evidence": "x"} for k in profile.keys],
+            "red_flags": ["r1"], "strengths": ["s1"], "watch_next_quarter": ["w1"], **over}
+    return "```json\n" + json.dumps(data) + "\n```"
+
+
+def test_prompt_asks_for_the_block_with_the_sectors_pillars():
+    assert '"balance_sheet"' in system_prompt(GENERAL) and '"asset_quality"' not in system_prompt(GENERAL)
+    assert '"asset_quality"' in system_prompt(FINANCIAL) and '"balance_sheet"' not in system_prompt(FINANCIAL)
+
+
+def test_node_splits_the_block_from_the_report_and_adds_the_snapshot():
+    out = fundamentals_agent_node(llm("THE ANALYSIS\n\n" + _block(GENERAL)))({"stock": "TCS"})
+    assert out["fundamentals_report"].endswith("\n\nTHE ANALYSIS") and "```json" not in out["fundamentals_report"]
+    block = out["fundamentals_meta"]["structured"]
+    assert block["profile"] == "general" and block["headline"] == "Growth without cash."
+    assert block["snapshot"]["pe"] == 16.5
+
+
+def test_a_bank_is_rated_on_the_financial_pillars():
+    bank = sample_financials("screener_hdfcbank.html")
+    out = fundamentals_agent_node(llm("A\n\n" + _block(FINANCIAL)), fetch=lambda s: bank)({"stock": "HDFC Bank"})
+    assert out["fundamentals_meta"]["structured"]["profile"] == "financial"
+
+
+def test_a_bad_block_keeps_the_report_and_the_header_figures():
+    out = fundamentals_agent_node(llm("THE ANALYSIS\n\n" + _block(FINANCIAL), "not json"))({"stock": "TCS"})  # wrong profile
+    block = out["fundamentals_meta"]["structured"]
+    assert out["fundamentals_report"].endswith("THE ANALYSIS")
+    assert "pillars" not in block and block["snapshot"]["price"] == 2498.0

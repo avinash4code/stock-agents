@@ -2,6 +2,7 @@
 `with conn:` so they land atomically."""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -64,9 +65,15 @@ class Report:
     fundamentals_report_id: int | None = None
     provider: str | None = None  # which model wrote it; None for reports imported from files
     model: str | None = None
+    structured: dict | None = None  # the agent's validated JSON block; None for old reports or when it was unusable
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Report":
+        raw = row["structured_json"]
+        try:
+            structured = json.loads(raw) if raw else None
+        except ValueError:
+            structured = None
         return cls(
             id=row["id"],
             run_id=row["run_id"],
@@ -82,6 +89,7 @@ class Report:
             fundamentals_report_id=row["fundamentals_report_id"],
             provider=row["provider"],
             model=row["model"],
+            structured=structured,
         )
 
 
@@ -132,7 +140,7 @@ class Repository:
         truncated: bool = False, input_tokens: int | None = None, output_tokens: int | None = None,
         news_report_id: int | None = None, macro_report_id: int | None = None,
         fundamentals_report_id: int | None = None, created_at: datetime | None = None,
-        provider: str | None = None, model: str | None = None,
+        provider: str | None = None, model: str | None = None, structured: dict | None = None,
     ) -> int:
         if agent not in AGENTS:
             raise ValueError(f"unknown agent {agent!r}; expected one of {AGENTS}")
@@ -141,11 +149,11 @@ class Repository:
         cur = self.conn.execute(
             """INSERT INTO reports (run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
                                     output_tokens, created_at, news_report_id, macro_report_id,
-                                    fundamentals_report_id, provider, model)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                    fundamentals_report_id, provider, model, structured_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, agent, stock, stock_key(stock), content_md, int(truncated), input_tokens,
              output_tokens, _iso(created_at or utcnow()), news_report_id, macro_report_id,
-             fundamentals_report_id, provider, model),
+             fundamentals_report_id, provider, model, json.dumps(structured) if structured else None),
         )
         return cur.lastrowid
 

@@ -13,9 +13,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+from stock_agents import structured
 from stock_agents.agents.common import run_agent
 from stock_agents.fundamentals import CompanyFinancials, FundamentalsError, fetch_fundamentals
 from stock_agents.metrics import render_data_section
+from stock_agents.pillars import GENERAL, PillarProfile, profile_for
+from stock_agents.snapshot import build_snapshot
 from stock_agents.state import AgentState, WorkflowState
 
 logger = logging.getLogger(__name__)
@@ -76,11 +79,17 @@ Two or three quantifiable thresholds for the upcoming result that would challeng
 Explicit list of limitations: data gaps (n/a rows), standalone vs. consolidated reporting, limited peer sample, or brief operating history."""
 
 
-def build_fundamentals_agent(llm: BaseChatModel):
+def system_prompt(profile: PillarProfile = GENERAL) -> str:
+    """The analysis prompt plus the request for the JSON block, which names the sector's pillars."""
+    return f"{SYSTEM_PROMPT}\n\n{structured.instructions('fundamentals', profile)}"
+
+
+def build_fundamentals_agent(llm: BaseChatModel, profile: PillarProfile = GENERAL):
     """Compile the agent graph: START -> llm -> END (no tools)."""
+    prompt = system_prompt(profile)
 
     def call_llm(state: AgentState) -> dict:
-        return {"messages": [llm.invoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])]}
+        return {"messages": [llm.invoke([SystemMessage(prompt), *state["messages"]])]}
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", call_llm)
@@ -104,8 +113,6 @@ def fundamentals_agent_node(llm: BaseChatModel, fetch=None):
     is fetched or run. If the data cannot be fetched, `fundamentals_error` is written instead.
     The stored report is the data tables followed by the analysis.
     """
-    agent = build_fundamentals_agent(llm)
-
     def node(state: WorkflowState) -> dict:
         if state.get("fundamentals_report"):
             return {}
@@ -115,13 +122,21 @@ def fundamentals_agent_node(llm: BaseChatModel, fetch=None):
             logger.warning("Fundamentals unavailable for %s: %s", state["stock"], exc)
             return {"fundamentals_error": str(exc)}
         task = build_task(state["stock"], data)
-        result = run_agent(agent, task)
+        profile = profile_for(data)  # which pillars to rate depends on the sector
+        agent = build_fundamentals_agent(llm, profile)
+
+        def run():
+            return run_agent(agent, task, summary="fundamentals", profile=profile, repair_llm=llm)
+
+        result = run()
         if not result.text.strip():  # reasoning models sometimes answer with hidden reasoning only
             logger.warning("Empty fundamentals reply for %s; retrying once", state["stock"])
-            result = run_agent(agent, task)
+            result = run()
         if not result.text.strip():
             result = replace(result, text=EMPTY_NOTE, truncated=True)  # truncated => never reused or fed to the outlook
         report = f"{render_data_section(data)}\n\n{result.text}"
-        return {"fundamentals_report": report, "fundamentals_meta": result.meta()}
+        # The header figures come from the page, so they are kept even when the model's block is unusable.
+        block = {"version": structured.VERSION, **(result.structured or {}), "snapshot": build_snapshot(data)}
+        return {"fundamentals_report": report, "fundamentals_meta": {**result.meta(), "structured": block}}
 
     return node

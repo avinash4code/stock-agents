@@ -332,3 +332,34 @@ def test_a_consolidated_404_and_a_blank_standalone_page_is_a_no_figures_error(sl
         200, text=fixture_html("screener_cantabil_consolidated_blank.html")))
     with pytest.raises(NoFigures, match="no financial figures"):
         fetch_company("CANTABIL", sleep=slept.append)
+
+
+def _page_with_strip(strip: str) -> str:
+    return f'<html><body><div id="top"><h1>X</h1>{strip}</div></body></html>'
+
+
+def test_quote_reads_price_day_change_and_close_date():
+    root = html.fromstring(_page_with_strip(
+        '<div class="font-size-18 strong"><div class="flex"><span>₹ 2,408</span>'
+        '<span class="font-size-12 down"><i></i> -1.43% </span></div>'
+        '<div class="ink-600 font-size-11"> 13 Nov - close price </div></div>'))
+    quote = screener._quote(root)
+    assert (quote.price, quote.change_pct, quote.as_of) == (2408.0, -1.43, "13 Nov - close price")
+
+
+def test_quote_change_is_signed_by_the_arrow_when_the_text_has_no_sign():
+    root = html.fromstring(_page_with_strip(
+        '<div class="font-size-18"><div class="flex"><span>₹ 4,040</span>'
+        '<span class="font-size-12 up">0.8%</span></div></div>'))
+    assert screener._quote(root).change_pct == 0.8
+    root = html.fromstring(_page_with_strip(
+        '<div class="font-size-18"><div class="flex"><span>₹ 40</span>'
+        '<span class="font-size-12 down">0.8%</span></div></div>'))
+    assert screener._quote(root).change_pct == -0.8
+
+
+def test_quote_without_a_change_keeps_just_the_price_and_without_a_strip_is_none():
+    root = html.fromstring(_page_with_strip('<div class="font-size-18"><div class="flex"><span>₹ 99</span></div></div>'))
+    quote = screener._quote(root)
+    assert (quote.price, quote.change_pct, quote.as_of) == (99.0, None, "")
+    assert screener._quote(html.fromstring("<html><body></body></html>")) is None

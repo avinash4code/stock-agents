@@ -34,6 +34,7 @@ export const api = {
   runs: (params) => get("/runs", params),
   report: (id) => get(`/reports/${id}`),
   reports: (params) => get("/reports", params),
+  overview: (symbol) => get(`/stocks/${encodeURIComponent(symbol)}/overview`),
 };
 
 export const AGENT_LABELS = { outlook: "Outlook", fundamentals: "Fundamentals", news: "News", macro: "Macro" };

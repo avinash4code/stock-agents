@@ -115,3 +115,34 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 .stage.running .icon { color: var(--warn); animation: spin 1.2s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .stage.running .icon { animation: none; } }
+
+/* Stock page summary card */
+.summary { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin: 0 0 20px; }
+.ss-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.ss-name strong { font-size: 1.1rem; }
+.ss-price { text-align: right; font-size: 1.2rem; font-weight: 600; }
+.ss-price .chg { font-size: .85rem; margin-left: 6px; } .chg.up { color: var(--ok); } .chg.down { color: var(--bad); }
+.ss-price .small { font-weight: 400; }
+.ss-label { font-weight: 700; margin-right: 4px; }
+.ss-overall { padding: 12px 0 4px; }
+.ss-horizons { display: flex; gap: 8px 24px; flex-wrap: wrap; align-items: baseline; }
+.ss-quote { margin: 6px 0 12px; font-style: italic; }
+.stance { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.stance i { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.stance.positive i { background: var(--ok); } .stance.neutral i { background: var(--warn); } .stance.negative i { background: var(--bad); }
+.ss-pillars { list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 6px; }
+.ss-pillars li { display: grid; grid-template-columns: 9.5rem 5.5rem 1fr; gap: 12px; align-items: center; }
+.ss-pname { font-weight: 600; }
+.ss-evidence { color: var(--muted); }
+.dots { display: inline-flex; gap: 3px; } .dots.none { color: var(--muted); }
+.dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.dots i.on { background: var(--text); border-color: var(--text); }
+.ss-lists { display: flex; gap: 8px 28px; flex-wrap: wrap; margin-bottom: 10px; }
+.ss-lists summary { cursor: pointer; font-weight: 600; }
+.ss-lists .flags summary { color: var(--bad); } .ss-lists .strengths summary { color: var(--ok); }
+.ss-lists ul { margin: 6px 0 0; padding-left: 20px; max-width: 34ch; }
+.ss-links { margin: 6px 0; }
+.ss-foot { display: flex; gap: 16px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+@media (max-width: 640px) { .ss-pillars li { grid-template-columns: 8rem 5.5rem; } .ss-evidence { grid-column: 1 / -1; } .ss-price { text-align: left; } }
+.ss-lists summary { list-style: none; } .ss-lists summary::-webkit-details-marker { display: none; }
+.ss-lists details[open] summary { text-decoration: underline; }

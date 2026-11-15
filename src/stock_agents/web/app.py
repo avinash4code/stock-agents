@@ -30,7 +30,7 @@ def report_summary(r: Report) -> dict:
     return {
         "id": r.id, "run_id": r.run_id, "agent": r.agent, "stock": r.stock, "truncated": r.truncated,
         "input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "created_at": r.created_at.isoformat(),
-        "chars": len(r.content_md), "provider": r.provider, "model": r.model,
+        "chars": len(r.content_md), "provider": r.provider, "model": r.model, "structured": r.structured,
     }
 
 
@@ -185,6 +185,24 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None,
     def reports(agent: str | None = None, stock: str | None = Query(None, max_length=100), limit: int = Query(20, ge=1, le=200),
                 repo: Repository = Depends(get_repo)):
         return [report_summary(r) for r in repo.list(agent=agent, stocks=aliases(stock), limit=limit)]
+
+    @app.get("/api/stocks/{symbol}/overview")
+    def overview(symbol: str, repo: Repository = Depends(get_repo)):
+        """What the top of a stock's page needs in one call: the newest report of each agent with its
+        structured block (None for reports written before the blocks existed) and the header snapshot."""
+        names = aliases(symbol) or [symbol]
+        entries: dict[str, dict | None] = {}
+        for agent in ("outlook", "fundamentals", "news", "macro"):
+            found = repo.list(agent=agent, stocks=None if agent == "macro" else names, limit=1)
+            r = found[0] if found else None
+            entries[agent] = None if r is None else {
+                "report_id": r.id, "created_at": r.created_at.isoformat(), "truncated": r.truncated,
+                "provider": r.provider, "model": r.model, "structured": r.structured,
+            }
+        fundamentals = entries["fundamentals"]
+        snapshot = ((fundamentals or {}).get("structured") or {}).get("snapshot")
+        stock_dates = [e["created_at"] for a, e in entries.items() if e and a != "macro"]
+        return {"symbol": symbol.upper(), "snapshot": snapshot, "as_of": max(stock_dates, default=None), **entries}
 
     @app.get("/api/reports/{report_id}")
     def report(report_id: int, repo: Repository = Depends(get_repo)):

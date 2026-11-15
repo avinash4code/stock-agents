@@ -263,3 +263,31 @@ def test_runs_left_running_by_a_dead_server_are_marked_failed_on_startup(tmp_pat
     assert repo.get_run(old).status == "failed" and "interrupted" in repo.get_run(old).error
     assert repo.get_run(fresh).status == "running"
     jobs.shutdown()
+
+
+def test_overview_returns_the_newest_blocks_and_the_header_snapshot(tmp_path):
+    conn = connect(tmp_path / "t.db")
+    repo = Repository(conn)
+    with conn:
+        run = repo.start_run("all", "Infosys")
+        repo.save_report(run, "fundamentals", "old", stock="Infosys", structured={"headline": "old"})
+        snap = {"price": 1500.0, "change_pct": 0.8, "price_as_of": "14 Nov - close price"}
+        repo.save_report(run, "fundamentals", "new", stock="Infosys", structured={"headline": "new", "snapshot": snap})
+        repo.save_report(run, "outlook", "o", stock="Infosys", structured={"headline": "out"})
+        repo.save_report(run, "news", "n", stock="Infosys")  # an old-style report: no block
+        repo.save_report(run, "macro", "m", structured={"headline": "macro"})
+    c = TestClient(create_app(tmp_path / "t.db", listings=LISTINGS))
+    body = c.get("/api/stocks/infy/overview").json()
+    assert body["symbol"] == "INFY" and body["snapshot"] == snap
+    assert body["fundamentals"]["structured"]["headline"] == "new"
+    assert body["outlook"]["structured"]["headline"] == "out"
+    assert body["news"]["structured"] is None and body["news"]["report_id"]
+    assert body["macro"]["structured"]["headline"] == "macro"
+    assert body["as_of"] is not None
+
+
+def test_overview_of_an_unknown_stock_is_empty_not_an_error(tmp_path):
+    c = TestClient(create_app(tmp_path / "t.db", listings=LISTINGS))
+    body = c.get("/api/stocks/TCS/overview").json()
+    assert body["snapshot"] is None and body["as_of"] is None
+    assert body["outlook"] is None and body["fundamentals"] is None and body["macro"] is None
