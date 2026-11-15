@@ -1,21 +1,29 @@
 import { useState } from "react";
 import RefreshControl from "./RefreshControl.jsx";
 import { api } from "../api.js";
+import { fixNegativeRupees as fix } from "../format.js";
 
 const inr = (n, digits = 0) => n.toLocaleString("en-IN", { maximumFractionDigits: digits });
 const STANCES = { positive: "Positive", neutral: "Neutral", negative: "Negative" };
 const HORIZONS = [["short", "Short term", "up to 3 months"], ["medium", "Medium term", "3 to 12 months"], ["long", "Long term", "over 1 year"]];
 
-/** One horizon's verdict: the stance large and tinted by its colour, with the confidence beside it. */
-export function StanceChip({ label, span, stance, confidence }) {
-  const known = !!STANCES[stance];
+/** The stance as a known key (positive / neutral / negative), whatever its case; null if it is none of those. */
+const stanceKey = (stance) => {
+  const key = String(stance ?? "").trim().toLowerCase();
+  return STANCES[key] ? key : null;
+};
+
+/** One horizon's verdict: a solid segment of the strip, coloured by stance (unknown values look neutral). */
+export function Horizon({ id, label, span, stance, confidence }) {
+  const key = stanceKey(stance);
+  const conf = String(confidence ?? "").trim().toLowerCase();
   return (
-    <div className={`ss-chip ${known ? stance : "none"}`} title={`${label}: ${span}`}>
-      <span className="ss-chip-h">{label}</span>
-      <span className="ss-chip-v">
-        <i aria-hidden="true" />{known ? STANCES[stance] : "n/a"}
-        {known && confidence && <span className="ss-chip-c"> · {confidence[0].toUpperCase() + confidence.slice(1)} confidence</span>}
-      </span>
+    // Focusable so the timeframe tooltip is also reachable from the keyboard.
+    <div className={`horizon horizon--${key || "neutral"}`} tabIndex={0} aria-describedby={`${id}-tip`}>
+      <span className="horizon__label">{label}</span>
+      <span className="horizon__stance">{key ? STANCES[key] : "n/a"}</span>
+      {key && conf && <span className="horizon__conf">{conf[0].toUpperCase() + conf.slice(1)} confidence</span>}
+      <span id={`${id}-tip`} role="tooltip" className="horizon__tip">{label}: {span}</span>
     </div>
   );
 }
@@ -87,14 +95,11 @@ function Header({ snapshot, symbol }) {
   );
 }
 
-function Overall({ company, headline }) {
+/** The three horizon verdicts as one joined strip. */
+function VerdictStrip({ company }) {
   return (
-    <div className="ss-overall">
-      <div className="ss-overall-h">Overall</div>
-      <div className="ss-chips">
-        {HORIZONS.map(([key, label, span]) => <StanceChip key={key} label={label} span={span} {...company[key]} />)}
-      </div>
-      {headline && <p className="ss-quote">“{headline}”</p>}
+    <div className="verdict" role="group" aria-label="Overall outlook by time horizon">
+      {HORIZONS.map(([key, label, span]) => <Horizon key={key} id={`horizon-${key}`} label={label} span={span} {...company[key]} />)}
     </div>
   );
 }
@@ -122,36 +127,38 @@ function Pillars({ pillars, onOpen }) {
       {pillars.map((p) => (
         <li key={p.key}>
           <button className="ss-pillar" onClick={() => onOpen("fundamentals", PILLAR_TARGETS[p.key])}
-                  aria-describedby={p.detail ? `tip-${p.key}` : undefined}
-                  title={p.detail ? undefined : `Open ${p.label || p.key} in the Fundamentals report`}>
+                  aria-describedby={`tip-${p.key}`}>
             <span className="ss-pname">{p.label || p.key}</span>
             <Dots rating={p.rating} />
-            <span className={`ss-evidence${p.detail ? " has-detail" : ""}`}>{p.evidence}</span>
+            <span className={`ss-evidence${p.detail ? " has-detail" : ""}`}>{fix(p.evidence)}</span>
           </button>
-          {p.detail && <span id={`tip-${p.key}`} role="tooltip" className="ss-tip">{p.detail}</span>}
+          <span id={`tip-${p.key}`} role="tooltip" className="ss-tip">
+            {p.detail && <span className="ss-tip__detail">{fix(p.detail)}</span>}
+            <span className="ss-tip__hint">Click to open {p.label || p.key} in the Fundamentals report</span>
+          </span>
         </li>
       ))}
     </ul>
   );
 }
 
-const CARDS = [
-  ["flags", "⚠", "Top red flags"],
-  ["strengths", "✓", "Top strengths"],
-  ["watch", "◉", "Watch next quarter"],
+const COLUMNS = [
+  ["flags", "RED FLAGS"],
+  ["strengths", "STRENGTHS"],
+  ["watch", "WATCH NEXT QUARTER"],
 ];
 
-/** Three always-visible cards (red / green / blue), up to three bullets each. */
+/** Red flags, strengths and what to watch: three quiet, always-open columns with up to three bullets each. */
 function Lists({ red, strengths, watch }) {
   const items = { flags: red, strengths, watch };
-  if (!CARDS.some(([kind]) => items[kind]?.length)) return null;
+  if (!COLUMNS.some(([kind]) => items[kind]?.length)) return null;
   return (
-    <div className="ss-cards">
-      {CARDS.map(([kind, icon, title]) => (
-        <section key={kind} className={`ss-card ${kind}`} aria-label={title}>
-          <h3><span aria-hidden="true">{icon}</span> {title}</h3>
+    <div className="evidence">
+      {COLUMNS.map(([kind, title]) => (
+        <section key={kind} className={`evidence__col evidence__col--${kind}`} aria-label={title}>
+          <h3 className="evidence__title">{title}</h3>
           {items[kind]?.length
-            ? <ul>{items[kind].slice(0, 3).map((t, i) => <li key={i}>{t}</li>)}</ul>
+            ? <ul>{items[kind].slice(0, 3).map((t, i) => <li key={i}>{fix(t)}</li>)}</ul>
             : <p className="muted small">None noted</p>}
         </section>
       ))}
@@ -177,8 +184,8 @@ export default function StockSummary({ overview, symbol, onOpenTab }) {
   return (
     <section className="summary" aria-label="Summary">
       {snapshot && <Header snapshot={snapshot} symbol={symbol} />}
-      {outlook?.company && <Overall company={outlook.company} headline={headline} />}
-      {!outlook?.company && headline && <p className="ss-quote">“{headline}”</p>}
+      {headline && <p className="ss-quote">“{fix(headline)}”</p>}
+      {outlook?.company && <VerdictStrip company={outlook.company} />}
       {fund?.pillars?.length > 0 && <Pillars pillars={fund.pillars} onOpen={onOpenTab} />}
       <Lists red={fund?.red_flags} strengths={fund?.strengths} watch={fund?.watch_next_quarter} />
       <div className="ss-foot muted small">

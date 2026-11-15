@@ -5,6 +5,7 @@ import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import GithubSlugger from "github-slugger";
 import { Table, Td, Tr } from "./ReportTable.jsx";
+import { fixNegativeRupees } from "../format.js";
 
 // Sanitise first (report text includes scraped article content), then add heading ids.
 const REHYPE = [rehypeSanitize, rehypeSlug];
@@ -21,6 +22,7 @@ const components = {
 
 /** Headings (levels 2-3) for the table of contents; ids match rehype-slug's. */
 export function headingsOf(md) {
+  md = fixNegativeRupees(md);  // so the headings match what is rendered
   const slugger = new GithubSlugger();
   const out = [];
   let fenced = false;
@@ -38,7 +40,7 @@ export function headingsOf(md) {
 
 export default function Markdown({ children }) {
   const body = useMemo(() => (
-    <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={components}>{children}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={components}>{fixNegativeRupees(children)}</ReactMarkdown>
   ), [children]);
   return <article className="md">{body}</article>;
 }
