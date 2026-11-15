@@ -67,6 +67,13 @@ MIGRATIONS = [
     CREATE INDEX idx_reports_latest ON reports (agent, stock_key, created_at DESC);
     CREATE INDEX idx_reports_run ON reports (run_id);
     """,
+    # 3: which model wrote each report (agents can use different models). Every report stored before this
+    # was written with deepseek-flash, so existing rows are filled in with that.
+    """
+    ALTER TABLE reports ADD COLUMN provider TEXT;
+    ALTER TABLE reports ADD COLUMN model TEXT;
+    UPDATE reports SET provider = 'deepseek', model = 'deepseek-flash';
+    """,
 ]
 
 

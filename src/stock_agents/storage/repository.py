@@ -62,6 +62,8 @@ class Report:
     news_report_id: int | None
     macro_report_id: int | None
     fundamentals_report_id: int | None = None
+    provider: str | None = None  # which model wrote it; None for reports imported from files
+    model: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Report":
@@ -78,6 +80,8 @@ class Report:
             news_report_id=row["news_report_id"],
             macro_report_id=row["macro_report_id"],
             fundamentals_report_id=row["fundamentals_report_id"],
+            provider=row["provider"],
+            model=row["model"],
         )
 
 
@@ -128,6 +132,7 @@ class Repository:
         truncated: bool = False, input_tokens: int | None = None, output_tokens: int | None = None,
         news_report_id: int | None = None, macro_report_id: int | None = None,
         fundamentals_report_id: int | None = None, created_at: datetime | None = None,
+        provider: str | None = None, model: str | None = None,
     ) -> int:
         if agent not in AGENTS:
             raise ValueError(f"unknown agent {agent!r}; expected one of {AGENTS}")
@@ -136,11 +141,11 @@ class Repository:
         cur = self.conn.execute(
             """INSERT INTO reports (run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
                                     output_tokens, created_at, news_report_id, macro_report_id,
-                                    fundamentals_report_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                    fundamentals_report_id, provider, model)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, agent, stock, stock_key(stock), content_md, int(truncated), input_tokens,
              output_tokens, _iso(created_at or utcnow()), news_report_id, macro_report_id,
-             fundamentals_report_id),
+             fundamentals_report_id, provider, model),
         )
         return cur.lastrowid
 

@@ -111,3 +111,10 @@ def test_fundamentals_reports_are_per_stock_and_linked_from_outlooks(repo):
         repo.save_report(repo.run_id, "fundamentals", "x")
     out = repo.save_report(repo.run_id, "outlook", "o", stock="TCS", fundamentals_report_id=new)
     assert repo.get(out).fundamentals_report_id == new and repo.get(new).fundamentals_report_id is None
+
+
+def test_report_remembers_its_provider_and_model(repo):
+    rid = repo.save_report(repo.run_id, "news", "b", stock="TCS", provider="anthropic", model="claude-sonnet-5-5")
+    assert (repo.get(rid).provider, repo.get(rid).model) == ("anthropic", "claude-sonnet-5-5")
+    plain = repo.save_report(repo.run_id, "macro", "m")  # e.g. imported from a file: unknown
+    assert (repo.get(plain).provider, repo.get(plain).model) == (None, None)

@@ -12,6 +12,7 @@ export default function ReportView({ report }) {
       <div className="report-meta">
         <span title={formatWhen(report.created_at)}>{AGENT_LABELS[report.agent]} · report #{report.id} · {ago(report.created_at)}</span>
         {report.truncated && <span className="badge warn">Incomplete: hit the token limit</span>}
+        {report.model && <span className="muted">{report.provider} / {report.model}</span>}
         {report.input_tokens != null && <span className="muted">tokens in/out {report.input_tokens}/{report.output_tokens ?? "-"}</span>}
         <span className="spacer" />
         <a className="btn" href={`/api/reports/${report.id}/export`}>Download .md</a>

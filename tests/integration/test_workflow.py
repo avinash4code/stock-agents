@@ -161,3 +161,34 @@ def test_cli_end_to_end_stores_everything_in_the_database(tmp_path, monkeypatch)
     assert cli.main(["--db", str(db), "outlook", "tcs"]) == 0
     assert repo.latest("outlook", "TCS").content_md == "OUTLOOK 2"
     assert "NEWS" in llm.messages_for("outlook")[-1][1].content
+
+
+@respx.mock
+def test_each_report_records_the_model_its_agent_used(tmp_path, monkeypatch):
+    from stock_agents import cli
+    from stock_agents.config import LLMConfig
+    from stock_agents.storage import Repository, connect
+
+    respx.get(BING).mock(return_value=httpx.Response(200, content=RSS_SAMPLE))
+    respx.get("https://example.com/1").mock(return_value=httpx.Response(200, text=HTML))
+    llm = llm_with(
+        news=[calls(("get_stock_news", {"stock": "TCS"})), AIMessage(content="NEWS")],
+        macro=[calls(("get_macro_news", {"topic": "crude oil"})), AIMessage(content="MACRO")],
+        outlook=[AIMessage(content="OUTLOOK")],
+    )
+    base = LLMConfig(provider="deepseek", api_key="k", model="deepseek-flash", max_tokens=500)
+    cfg = base.with_agent_models({
+        "fundamentals": base.derive(model="deepseek-v4-pro"),
+        "outlook": LLMConfig(provider="anthropic", api_key="a", model="claude-sonnet-5-5", max_tokens=500)})
+    monkeypatch.setattr(cli, "_llm", lambda: (cfg, llm))
+    db = tmp_path / "x.db"
+
+    assert cli.main(["--db", str(db), "all", "TCS"]) == 0
+
+    conn = connect(db)
+    repo = Repository(conn)
+    got = {a: (r.provider, r.model) for a in ("news", "macro", "fundamentals", "outlook")
+           for r in [repo.latest(a, "TCS")]}
+    assert got == {"news": ("deepseek", "deepseek-flash"), "macro": ("deepseek", "deepseek-flash"),
+                   "fundamentals": ("deepseek", "deepseek-v4-pro"), "outlook": ("anthropic", "claude-sonnet-5-5")}
+    assert conn.execute("SELECT provider FROM runs").fetchone()[0] == "mixed"

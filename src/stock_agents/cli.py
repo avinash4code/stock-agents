@@ -41,8 +41,9 @@ def _err(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def _save(repo: Repository, run_id: int, agent: str, stock: str | None, text: str, meta: dict | None, **links) -> int:
-    return save_report(repo, run_id, agent, stock, text, meta, _err, **links)
+def _save(repo: Repository, run_id: int, agent: str, stock: str | None, text: str, meta: dict | None,
+          cfg: LLMConfig, **links) -> int:
+    return save_report(repo, run_id, agent, stock, text, meta, cfg, _err, **links)
 
 
 def _show(title: str, text: str) -> None:
@@ -81,7 +82,7 @@ def cmd_news(args, conn, repo) -> None:
     with tracked_run(conn, "news", args.stock, cfg) as run_id:
         state = news_agent.news_agent_node(model_for(llm, "news"))({"stock": args.stock})
         with conn:
-            _save(repo, run_id, "news", args.stock, state["news_report"], state.get("news_meta"))
+            _save(repo, run_id, "news", args.stock, state["news_report"], state.get("news_meta"), cfg)
     _show(f"Stock news: {args.stock}", state["news_report"])
 
 
@@ -90,7 +91,7 @@ def cmd_macro(args, conn, repo) -> None:
     with tracked_run(conn, "macro", None, cfg) as run_id:
         state = macro_agent.macro_agent_node(model_for(llm, "macro"))({})
         with conn:
-            _save(repo, run_id, "macro", None, state["macro_report"], state.get("macro_meta"))
+            _save(repo, run_id, "macro", None, state["macro_report"], state.get("macro_meta"), cfg)
     _show("Macro environment", state["macro_report"])
 
 
@@ -101,7 +102,8 @@ def cmd_fundamentals(args, conn, repo) -> None:
         if "fundamentals_report" not in state:
             raise SystemExit(f"Cannot run fundamentals: {state['fundamentals_error']}.")
         with conn:
-            _save(repo, run_id, "fundamentals", args.stock, state["fundamentals_report"], state.get("fundamentals_meta"))
+            _save(repo, run_id, "fundamentals", args.stock, state["fundamentals_report"], state.get("fundamentals_meta"),
+                  cfg)
     _show(f"Fundamentals: {args.stock}", state["fundamentals_report"])
 
 
@@ -130,7 +132,7 @@ def cmd_outlook(args, conn, repo) -> None:
         )
         with conn:
             _save(repo, run_id, "outlook", args.stock, state["outlook_report"], state.get("outlook_meta"),
-                  news_report_id=news.id, macro_report_id=macro.id,
+                  cfg, news_report_id=news.id, macro_report_id=macro.id,
                   fundamentals_report_id=fund.id if fund else None)
     _show("Outlook", state["outlook_report"])
 

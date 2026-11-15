@@ -30,7 +30,7 @@ def report_summary(r: Report) -> dict:
     return {
         "id": r.id, "run_id": r.run_id, "agent": r.agent, "stock": r.stock, "truncated": r.truncated,
         "input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "created_at": r.created_at.isoformat(),
-        "chars": len(r.content_md),
+        "chars": len(r.content_md), "provider": r.provider, "model": r.model,
     }
 
 

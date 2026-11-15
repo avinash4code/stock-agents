@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from stock_agents.config import LLMConfig
@@ -12,7 +14,7 @@ VARS = [
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch, tmp_path):
-    for v in VARS:
+    for v in [*VARS, *(k for k in os.environ if k.startswith("LLM_"))]:  # incl. per-agent LLM_<AGENT>_*
         monkeypatch.delenv(v, raising=False)
     monkeypatch.chdir(tmp_path)  # no stray .env from the repo
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,16 @@ from urllib.parse import quote
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.outputs import ChatGeneration, ChatResult
+
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """Settings loading copies `.env` into os.environ (load_dotenv); undo that after each test so one test's
+    `.env` values (e.g. LLM_OUTLOOK_MODEL) cannot leak into the next."""
+    before = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(before)
+
 
 def _rfc822(days_ago: float) -> str:
     return formatdate(time.time() - days_ago * 86400, usegmt=True)

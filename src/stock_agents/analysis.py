@@ -40,11 +40,14 @@ def tracked_run(conn: sqlite3.Connection, command: str, stock: str | None, cfg: 
 
 
 def save_report(repo: Repository, run_id: int, agent: str, stock: str | None, text: str, meta: dict | None,
-                notify: Notify = lambda msg: None, **links) -> int:
+                cfg: LLMConfig, notify: Notify = lambda msg: None, **links) -> int:
+    """Store an agent's report together with the provider and model that agent used (from `cfg`)."""
     meta = meta or {}
+    agent_cfg = cfg.for_agent(agent)
     report_id = repo.save_report(
         run_id, agent, text, stock=stock, truncated=meta.get("truncated", False),
-        input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"), **links,
+        input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"),
+        provider=agent_cfg.provider, model=agent_cfg.model, **links,
     )
     note = " (INCOMPLETE: hit the token limit)" if meta.get("truncated") else ""
     notify(f"Saved {agent} report #{report_id}{note}")
@@ -114,20 +117,20 @@ def run_all(
         saved: dict[str, int] = {}
         with conn:
             saved["news"] = news_old.id if news_old else save_report(
-                repo, run_id, "news", stock, result["news_report"], result.get("news_meta"), notify)
+                repo, run_id, "news", stock, result["news_report"], result.get("news_meta"), cfg, notify)
             saved["macro"] = macro_old.id if macro_old else save_report(
-                repo, run_id, "macro", None, result["macro_report"], result.get("macro_meta"), notify)
+                repo, run_id, "macro", None, result["macro_report"], result.get("macro_meta"), cfg, notify)
             if fund_old:
                 saved["fundamentals"] = fund_old.id
             elif result.get("fundamentals_report"):
                 saved["fundamentals"] = save_report(
                     repo, run_id, "fundamentals", stock, result["fundamentals_report"],
-                    result.get("fundamentals_meta"), notify)
+                    result.get("fundamentals_meta"), cfg, notify)
             else:  # data unavailable: the outlook still runs, without it
                 notify(f"Warning: no fundamentals report - {result.get('fundamentals_error', 'unknown error')}")
                 emit("fundamentals", "failed")
             saved["outlook"] = save_report(
-                repo, run_id, "outlook", stock, result["outlook_report"], result.get("outlook_meta"), notify,
+                repo, run_id, "outlook", stock, result["outlook_report"], result.get("outlook_meta"), cfg, notify,
                 news_report_id=saved["news"], macro_report_id=saved["macro"],
                 fundamentals_report_id=saved.get("fundamentals"))
         emit("outlook", "done")

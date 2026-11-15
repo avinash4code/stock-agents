@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -231,8 +233,8 @@ def test_post_runs_without_an_api_key_says_so(tmp_path):
 
 def test_config_reports_whether_runs_are_possible(monkeypatch, tmp_path, client):
     monkeypatch.chdir(tmp_path)
-    for var in ("ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"):
-        monkeypatch.delenv(var, raising=False)
+    for var in ("ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", *(v for v in os.environ if v.startswith("LLM_"))):
+        monkeypatch.delenv(var, raising=False)  # incl. any per-agent LLM_<AGENT>_* a real .env loaded earlier
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     c, _ = client
     off = c.get("/api/config").json()

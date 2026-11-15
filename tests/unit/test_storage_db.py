@@ -110,3 +110,28 @@ def test_connection_can_cross_threads_only_when_allowed(tmp_path):
 
     assert query_from_another_thread(connect(tmp_path / "a.db"))
     assert not query_from_another_thread(connect(tmp_path / "b.db", check_same_thread=False))
+
+
+def test_migration_3_adds_model_columns_and_labels_existing_reports_deepseek_flash(tmp_path):
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("BEGIN;\n" + "\n".join(MIGRATIONS[:2]) + "\nPRAGMA user_version = 2;\nCOMMIT;")
+    raw.execute("INSERT INTO runs (command, started_at) VALUES ('all', 't')")
+    raw.execute("INSERT INTO reports (run_id, agent, stock, stock_key, content_md, created_at)"
+                " VALUES (1, 'news', 'TCS', 'tcs', 'old body', 't')")
+    raw.commit()
+    raw.close()
+
+    conn = connect(path)
+    assert version(conn) == len(MIGRATIONS) >= 3
+    assert [tuple(r) for r in conn.execute("SELECT content_md, provider, model FROM reports")] == [
+        ("old body", "deepseek", "deepseek-flash")]
+    # reports written after the migration start without a model until one is given
+    conn.execute("INSERT INTO reports (run_id, agent, content_md, created_at) VALUES (1, 'macro', 'm', 't')")
+    assert conn.execute("SELECT provider, model FROM reports WHERE agent = 'macro'").fetchone()[:] == (None, None)
+
+
+def test_fresh_database_has_model_columns_and_no_backfilled_rows(tmp_path):
+    conn = connect(tmp_path / "a.db")
+    assert {"provider", "model"} <= {r[1] for r in conn.execute("PRAGMA table_info(reports)")}
+    assert conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
