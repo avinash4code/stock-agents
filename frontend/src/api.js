@@ -34,6 +34,7 @@ export const api = {
   runs: (params) => get("/runs", params),
   report: (id) => get(`/reports/${id}`),
   reports: (params) => get("/reports", params),
+  refreshQuote: (symbol) => post(`/stocks/${encodeURIComponent(symbol)}/quote`, {}),
   overview: (symbol) => get(`/stocks/${encodeURIComponent(symbol)}/overview`),
 };
 

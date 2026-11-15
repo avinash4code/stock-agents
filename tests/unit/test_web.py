@@ -291,3 +291,59 @@ def test_overview_of_an_unknown_stock_is_empty_not_an_error(tmp_path):
     body = c.get("/api/stocks/TCS/overview").json()
     assert body["snapshot"] is None and body["as_of"] is None
     assert body["outlook"] is None and body["fundamentals"] is None and body["macro"] is None
+
+
+# -- price refresh ---------------------------------------------------------------------------------
+
+def quote_client(tmp_path, fetcher):
+    return TestClient(create_app(tmp_path / "q.db", LISTINGS, quote_fetcher=fetcher))
+
+
+def test_quote_refresh_returns_the_price_and_caches_it_briefly(tmp_path):
+    from stock_agents.fundamentals import Quote
+
+    calls = []
+
+    def fetcher(symbol):
+        calls.append(symbol)
+        return Quote(2408.0, -1.43, "13 Nov - close price")
+
+    c = quote_client(tmp_path, fetcher)
+    first = c.post("/api/stocks/tcs/quote").json()
+    assert (first["price"], first["change_pct"], first["as_of"]) == (2408.0, -1.43, "13 Nov - close price")
+    assert first["fetched_at"]
+    assert c.post("/api/stocks/TCS/quote").json() == first and calls == ["TCS"]  # second click did not fetch
+    c.post("/api/stocks/INFY/quote")
+    assert calls == ["TCS", "INFY"]
+
+
+def test_quote_refresh_only_fetches_listed_symbols(tmp_path):
+    def boom(symbol):
+        raise AssertionError("must not fetch")
+
+    assert quote_client(tmp_path, boom).post("/api/stocks/NOTREAL/quote").status_code == 404
+
+
+def test_quote_refresh_reports_screener_failures_as_502_and_does_not_cache_them(tmp_path):
+    from stock_agents.fundamentals import FundamentalsError, Quote
+
+    answers = iter([FundamentalsError("Screener refused the request (HTTP 429)"), Quote(10.0, None, "")])
+
+    def fetcher(symbol):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    c = quote_client(tmp_path, fetcher)
+    failed = c.post("/api/stocks/TCS/quote")
+    assert failed.status_code == 502 and "refused" in failed.json()["detail"]
+    assert c.post("/api/stocks/TCS/quote").json()["price"] == 10.0
+
+
+def test_quote_refresh_refuses_cross_origin_requests(tmp_path):
+    from stock_agents.fundamentals import Quote
+
+    c = quote_client(tmp_path, lambda s: Quote(1.0, None, ""))
+    assert c.post("/api/stocks/TCS/quote", headers={"origin": "http://evil.example"}).status_code == 403
+    assert c.post("/api/stocks/TCS/quote", headers={"origin": "http://testserver"}).status_code == 200

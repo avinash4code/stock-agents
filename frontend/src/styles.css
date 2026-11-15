@@ -146,3 +146,4 @@ a.badge:hover { text-decoration: none; filter: brightness(1.15); }
 @media (max-width: 640px) { .ss-pillars li { grid-template-columns: 8rem 5.5rem; } .ss-evidence { grid-column: 1 / -1; } .ss-price { text-align: left; } }
 .ss-lists summary { list-style: none; } .ss-lists summary::-webkit-details-marker { display: none; }
 .ss-lists details[open] summary { text-decoration: underline; }
+.ss-refresh { margin-left: 8px; font-size: 1rem; } .ss-refresh:disabled { opacity: .5; cursor: default; }

@@ -363,3 +363,30 @@ def test_quote_without_a_change_keeps_just_the_price_and_without_a_strip_is_none
     quote = screener._quote(root)
     assert (quote.price, quote.change_pct, quote.as_of) == (99.0, None, "")
     assert screener._quote(html.fromstring("<html><body></body></html>")) is None
+
+
+STRIP = ('<html><body><div id="top"><h1>X</h1><div class="font-size-18"><div class="flex"><span>₹ 2,408</span>'
+         '<span class="font-size-12 down">-1.43%</span></div><div class="ink-600">13 Nov - close price</div></div></div></body></html>')
+
+
+@respx.mock
+def test_fetch_quote_is_one_request_for_the_plain_page_and_reads_only_the_price_strip(slept):
+    route = respx.get(BARE).mock(return_value=httpx.Response(200, text=STRIP))
+    other = respx.route().mock(return_value=httpx.Response(200, text=""))  # nothing else may be requested
+    found = screener.fetch_quote("TCS", sleep=slept.append)
+    assert (found.price, found.change_pct, found.as_of) == (2408.0, -1.43, "13 Nov - close price")
+    assert route.call_count == 1 and other.call_count == 0 and slept == []
+    assert "stock-agents" in route.calls[0].request.headers["user-agent"]
+
+
+@pytest.mark.parametrize("response, message", [
+    (httpx.Response(404), "no company page"),
+    (httpx.Response(403), "refused"),
+    (httpx.Response(200, text="<html><body>no strip</body></html>"), "no price strip"),
+    (httpx.Response(200, text=""), "no price strip"),
+])
+@respx.mock
+def test_fetch_quote_failures_are_clear_errors(response, message, slept):
+    respx.get(BARE).mock(return_value=response)
+    with pytest.raises(FundamentalsError, match=message):
+        screener.fetch_quote("TCS", sleep=slept.append)

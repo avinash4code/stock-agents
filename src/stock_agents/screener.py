@@ -14,7 +14,7 @@ from datetime import date
 from urllib.parse import quote
 
 import httpx
-from lxml import html
+from lxml import etree, html
 
 from stock_agents.fundamentals import (
     EMPTY, CompanyFinancials, FundamentalsError, NoFigures, Peer, PeerComparison, Quote, Table,
@@ -94,6 +94,33 @@ def fetch_company(symbol: str, client: httpx.Client | None = None, sleep=time.sl
     finally:
         if owns_client:
             client.close()
+
+
+def fetch_quote(symbol: str, client: httpx.Client | None = None, sleep=time.sleep) -> Quote:
+    """Just the price strip (price, day change, date of the close): one request, no LLM, no other tables.
+
+    The standalone and consolidated pages show the same price, so the plain company page is used.
+    """
+    owns_client = client is None
+    client = client or httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT})
+    try:
+        response = _get(client, f"{BASE_URL}/{quote(symbol, safe='&-')}/", sleep)
+    finally:
+        if owns_client:
+            client.close()
+    if response.status_code == 404:
+        raise FundamentalsError(f"Screener has no company page for {symbol!r}")
+    if response.status_code in (401, 403, 429):
+        raise FundamentalsError(f"Screener refused the request (HTTP {response.status_code}); try again later")
+    if response.status_code != 200:
+        raise FundamentalsError(f"Screener returned HTTP {response.status_code} for {symbol!r}")
+    try:
+        found = _quote(html.fromstring(response.text))
+    except etree.LxmlError:
+        found = None
+    if found is None:
+        raise FundamentalsError(f"Screener's page for {symbol!r} has no price strip (layout changed?)")
+    return found
 
 
 def _with_peers(client: httpx.Client, fin: CompanyFinancials, sleep) -> CompanyFinancials:

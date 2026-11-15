@@ -6,7 +6,10 @@ The built frontend (`frontend/dist`, copied into `web/static` by `npm run build`
 from __future__ import annotations
 
 import re
+import threading
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import sqlite3
 from pathlib import Path
 from typing import Iterator
@@ -19,7 +22,8 @@ from pydantic import BaseModel, Field
 from stock_agents.reports import export_filename, render_markdown
 from stock_agents.storage import Report, Repository, Run, connect
 from stock_agents.config import LLMConfig, reuse_hours
-from stock_agents.fundamentals import FundamentalsError
+from stock_agents.fundamentals import FundamentalsError, Quote
+from stock_agents.screener import fetch_quote as fetch_screener_quote
 from stock_agents.symbols import Listing, load_listings, normalize_name, resolve_symbol, search_listings
 from stock_agents.web.jobs import AlreadyRunning, JobManager
 
@@ -77,8 +81,11 @@ def run_summary(run: Run, repo: Repository, jobs: JobManager | None = None, symb
     }
 
 
+QUOTE_CACHE_SECONDS = 300  # Screener's price only changes once a day; this just stops repeated clicks hitting it
+
+
 def create_app(db_file: str | Path, listings: list[Listing] | None = None,
-               jobs: JobManager | None = None) -> FastAPI:
+               jobs: JobManager | None = None, quote_fetcher=None) -> FastAPI:
     connect(db_file).close()  # create / migrate once up front
     jobs = jobs or JobManager(db_file)
 
@@ -89,6 +96,16 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None,
 
     app = FastAPI(title="stock-analyst", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
     state = {"listings": listings}
+    quotes: dict[str, tuple[float, dict]] = {}  # symbol -> (fetched at monotonic time, response)
+    quotes_lock = threading.Lock()
+    fetch_quote = quote_fetcher or fetch_screener_quote
+
+    def require_same_origin(request: Request) -> None:
+        """For POSTs that spend tokens or call out to other sites: a cross-site page cannot send same-origin
+        JSON requests without a CORS preflight, which is refused."""
+        origin = request.headers.get("origin")
+        if origin and origin.split("://", 1)[-1] != request.headers.get("host"):
+            raise HTTPException(403, "cross-origin request refused")
 
     def get_listings() -> list[Listing]:
         if state["listings"] is None:  # loaded lazily: may download NSE's list on first use
@@ -157,9 +174,7 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None,
     def start_run(body: RunRequest, request: Request):
         """Start the whole workflow for a company. Spends LLM tokens, so it only accepts same-origin
         JSON requests (a cross-site page cannot send those without a CORS preflight, which is refused)."""
-        origin = request.headers.get("origin")
-        if origin and origin.split("://", 1)[-1] != request.headers.get("host"):
-            raise HTTPException(403, "cross-origin request refused")
+        require_same_origin(request)
         try:
             symbol = resolve_symbol(body.stock, get_listings())
         except FundamentalsError as exc:
@@ -203,6 +218,28 @@ def create_app(db_file: str | Path, listings: list[Listing] | None = None,
         snapshot = ((fundamentals or {}).get("structured") or {}).get("snapshot")
         stock_dates = [e["created_at"] for a, e in entries.items() if e and a != "macro"]
         return {"symbol": symbol.upper(), "snapshot": snapshot, "as_of": max(stock_dates, default=None), **entries}
+
+    @app.post("/api/stocks/{symbol}/quote")
+    def refresh_quote(symbol: str, request: Request):
+        """The latest price, day change and close date from Screener: one HTTP request, no LLM. Only listed
+        symbols are fetched, and a result is reused for a few minutes."""
+        require_same_origin(request)
+        symbol = symbol.strip().upper()
+        if not any(l.symbol == symbol for l in get_listings()):
+            raise HTTPException(404, f"Unknown symbol {symbol!r}")
+        with quotes_lock:
+            cached = quotes.get(symbol)
+            if cached and time.monotonic() - cached[0] < QUOTE_CACHE_SECONDS:
+                return cached[1]
+        try:
+            found: Quote = fetch_quote(symbol)
+        except FundamentalsError as exc:
+            raise HTTPException(502, str(exc)) from None
+        out = {"price": found.price, "change_pct": found.change_pct, "as_of": found.as_of,
+               "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        with quotes_lock:
+            quotes[symbol] = (time.monotonic(), out)
+        return out
 
     @app.get("/api/reports/{report_id}")
     def report(report_id: int, repo: Repository = Depends(get_repo)):
