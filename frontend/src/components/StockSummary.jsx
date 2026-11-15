@@ -20,11 +20,18 @@ export function StanceBadge({ stance, confidence }) {
   );
 }
 
+/** 4-5 strong (green), 3 OK (amber), 1-2 weak (red); the word means the colour is never the only signal. */
+export function band(rating) {
+  return rating >= 4 ? ["strong", "Strong"] : rating === 3 ? ["ok", "OK"] : ["weak", "Weak"];
+}
+
 export function Dots({ rating }) {
-  if (rating == null) return <span className="dots none" aria-label="not rated">–</span>;
+  if (rating == null) return <span className="rating none" aria-label="not rated">–</span>;
+  const [tone, word] = band(rating);
   return (
-    <span className="dots" role="img" aria-label={`${rating} out of 5`}>
-      {[1, 2, 3, 4, 5].map((i) => <i key={i} className={i <= rating ? "on" : ""} />)}
+    <span className={`rating ${tone}`} role="img" aria-label={`${rating} out of 5, ${word}`}>
+      <span className="dots">{[1, 2, 3, 4, 5].map((i) => <i key={i} className={i <= rating ? "on" : ""} />)}</span>
+      <span className="rating-word">{word}</span>
     </span>
   );
 }
