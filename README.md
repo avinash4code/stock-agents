@@ -86,6 +86,18 @@ tagged with the command, stock and models, grouped in a session per run (`run-<i
 (and `fundamentals.unavailable` when Screener could not be reached). Without keys, or with `LANGFUSE_ENABLED=false`,
 nothing is sent and nothing changes; a tracing error never fails a run. `observability.py` holds all of it.
 
+### Prompt management
+    stock-analyst prompts push           # once: create stock-analyst/{news,macro,fundamentals,outlook,repair} in Langfuse
+    # then edit them in the Langfuse UI; promote a version by moving the `production` label (LANGFUSE_PROMPT_LABEL)
+
+Each agent's prompt is the editable prose (role, sections, writing rules) followed by the JSON-block instructions, which
+stay in code (`structured.py`) so an edit cannot break the validators or the cards (the pillar keys come from `pillars.py`).
+Prompts are fetched each time an agent is built, so a run uses whichever version carries the label (cached for
+`LANGFUSE_PROMPT_CACHE_TTL` seconds), with no restart. The constants in `agents/*.py` are the fallback, used when Langfuse is
+off or unreachable, has no such prompt, or serves a version that lost a section heading the UI relies on (`REQUIRED_HEADINGS`
+in `prompts.py`). Once seeded, Langfuse is the source of truth: `push` leaves edited prompts alone (`--force` pushes the code
+default as a new version).
+
 ## Stored reports
 Every run and report is stored in a local SQLite database (default `data/stock_analyst.db`, next to your `.env`;
 change it with `STOCK_ANALYST_DB` in `.env` or `--db PATH`). Each report keeps its stock, agent, timestamp, token

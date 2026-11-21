@@ -8,14 +8,14 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from stock_agents.agents.common import build_tool_agent, run_agent
-from stock_agents import structured
+from stock_agents import prompts, structured
 from stock_agents.articles import read_article
 from stock_agents.news import get_stock_news
 from stock_agents.state import WorkflowState
 
 NAME = "news_agent"
 
-SYSTEM_PROMPT = """You are a research assistant that gathers recent news about Indian listed stocks (NSE/BSE).
+PROSE = """You are a research assistant that gathers recent news about Indian listed stocks (NSE/BSE).
 Use the get_stock_news tool to fetch headlines for the stock the user names. If results are empty or \
 irrelevant, retry once with an alternate name or symbol.
 Then call read_article on the 2-3 most relevant links for fuller detail; if it returns an ERROR, \
@@ -26,14 +26,18 @@ Only report what the articles say; do not invent facts and do not give investmen
 For the JSON block: stance is the overall tone of coverage (mixed = neutral); red_flags are the most worrying \
 items in the news; catalysts are the most important positive or pending events.
 
-""" + structured.instructions("news")
+"""
+
+SYSTEM_PROMPT = prompts.compose(PROSE, structured.instructions("news"))  # the local default
 
 TOOLS = [get_stock_news, read_article]
 
 
-def build_news_agent(llm: BaseChatModel, tools: list | None = None):
-    """Compile the news agent graph."""
-    return build_tool_agent(llm, tools if tools is not None else TOOLS, SYSTEM_PROMPT, NAME)
+def build_news_agent(llm: BaseChatModel, tools: list | None = None, prompt: prompts.Prompt | None = None):
+    """Compile the news agent graph (the prompt is fetched from Langfuse if it is set up, else `PROSE`)."""
+    prompt = prompt or prompts.resolve("news", PROSE)
+    system = prompts.compose(prompt.text, structured.instructions("news"))
+    return build_tool_agent(llm, tools if tools is not None else TOOLS, system, NAME)
 
 
 def news_agent_node(llm: BaseChatModel):

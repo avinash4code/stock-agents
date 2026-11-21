@@ -15,6 +15,12 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 @pytest.fixture(autouse=True)
+def _no_langfuse(monkeypatch):
+    """Never trace or fetch prompts from a developer's real Langfuse project; tests that need it switch it on."""
+    monkeypatch.setenv("LANGFUSE_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
 def _restore_environ():
     """Settings loading copies `.env` into os.environ (load_dotenv); undo that after each test so one test's
     `.env` values (e.g. LLM_OUTLOOK_MODEL) cannot leak into the next."""

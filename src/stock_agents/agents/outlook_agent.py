@@ -6,13 +6,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END, START, StateGraph
 
-from stock_agents import structured
+from stock_agents import prompts, structured
 from stock_agents.agents.common import run_agent
 from stock_agents.state import AgentState, WorkflowState
 
 NAME = "outlook_agent"
 
-SYSTEM_PROMPT = """You are an equity research analyst covering Indian listed companies (NSE/BSE).
+PROSE = """You are an equity research analyst covering Indian listed companies (NSE/BSE).
 You are given a stock plus three research notes: recent company news, the current macro environment, and \\
 the company's quarterly financials (any of them may be marked not available).
 Form a reasoned outlook for (1) the industry sector the company belongs to and (2) the company itself.
@@ -43,16 +43,20 @@ trends but must say so. If the notes are thin or contradictory, lower your confi
 Do not invent figures, and do not give buy/sell/hold recommendations or price targets. \\
 This is an analytical outlook, not investment advice.
 
-""" + structured.instructions("outlook")
+"""
+
+SYSTEM_PROMPT = prompts.compose(PROSE, structured.instructions("outlook"))  # the local default
 
 MISSING = "(not available)"
 
 
-def build_outlook_agent(llm: BaseChatModel):
-    """Compile the outlook agent graph: START -> llm -> END."""
+def build_outlook_agent(llm: BaseChatModel, prompt: prompts.Prompt | None = None):
+    """Compile the outlook agent graph: START -> llm -> END (prompt from Langfuse if set up, else `PROSE`)."""
+    prompt = prompt or prompts.resolve("outlook", PROSE)
+    system = prompts.compose(prompt.text, structured.instructions("outlook"))
 
     def call_llm(state: AgentState) -> dict:
-        return {"messages": [llm.invoke([SystemMessage(SYSTEM_PROMPT), *state["messages"]])]}
+        return {"messages": [llm.invoke([SystemMessage(system), *state["messages"]])]}
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", call_llm)

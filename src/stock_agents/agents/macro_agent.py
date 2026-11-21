@@ -5,14 +5,14 @@ from __future__ import annotations
 from langchain_core.language_models import BaseChatModel
 
 from stock_agents.agents.common import build_tool_agent, run_agent
-from stock_agents import structured
+from stock_agents import prompts, structured
 from stock_agents.articles import read_article
 from stock_agents.news import get_macro_news
 from stock_agents.state import WorkflowState
 
 NAME = "macro_agent"
 
-SYSTEM_PROMPT = """You are a macro research analyst covering what moves the Indian stock market (NSE/BSE).
+PROSE = """You are a macro research analyst covering what moves the Indian stock market (NSE/BSE).
 Step 1 - scan: call get_macro_news once per topic across the themes below (skip ones that are clearly \\
 irrelevant, add others that matter right now):
   - wars, geopolitical tensions, sanctions, trade/tariff policy
@@ -35,16 +35,20 @@ Only report what the sources say; do not invent figures and do not give investme
 For the JSON block: stance is the overall tone for Indian markets (mixed = neutral); red_flags are the main \
 risks to watch; themes are the main macro themes driving the market now.
 
-""" + structured.instructions("macro")
+"""
+
+SYSTEM_PROMPT = prompts.compose(PROSE, structured.instructions("macro"))  # the local default
 
 TOOLS = [get_macro_news, read_article]
 
 TASK = "Scan the latest national and international developments relevant to the Indian stock market."
 
 
-def build_macro_agent(llm: BaseChatModel, tools: list | None = None):
-    """Compile the macro agent graph."""
-    return build_tool_agent(llm, tools if tools is not None else TOOLS, SYSTEM_PROMPT, NAME)
+def build_macro_agent(llm: BaseChatModel, tools: list | None = None, prompt: prompts.Prompt | None = None):
+    """Compile the macro agent graph (the prompt is fetched from Langfuse if it is set up, else `PROSE`)."""
+    prompt = prompt or prompts.resolve("macro", PROSE)
+    system = prompts.compose(prompt.text, structured.instructions("macro"))
+    return build_tool_agent(llm, tools if tools is not None else TOOLS, system, NAME)
 
 
 def macro_agent_node(llm: BaseChatModel):

@@ -7,6 +7,7 @@
     stock-analyst outlook TCS             # outlook agent only, on the latest stored news + macro (+ fundamentals) reports
     stock-analyst reports list            # browse stored reports; also `reports show ID`, `reports export ID`
     stock-analyst compare TCS HDFCBANK    # run stocks through different per-agent model setups, side by side
+    stock-analyst prompts push            # seed the agent prompts into Langfuse (optional prompt management)
     stock-analyst serve                   # web UI at http://127.0.0.1:8000
     stock-analyst import news_reports/    # one-time import of reports saved as files by older versions
 """
@@ -18,7 +19,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from stock_agents import observability
+from stock_agents import observability, prompts
 from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
 from stock_agents.analysis import run_all, save_report, tracked_run
 from stock_agents.compare import (
@@ -29,7 +30,7 @@ from stock_agents.llm import build_llm, model_for
 from stock_agents.reports import DEFAULT_EXPORT_DIR, export_report, import_reports, render_markdown
 from stock_agents.storage import Report, Repository, connect
 
-COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve", "compare"}
+COMMANDS = {"all", "news", "macro", "fundamentals", "outlook", "reports", "import", "serve", "compare", "prompts"}
 OPTIONS_WITH_VALUE = {"--db"}
 
 
@@ -184,6 +185,16 @@ def cmd_compare(args, conn, repo) -> None:
     print(f"Wrote the comparison to {out}  (open the .html files; summary.md has token totals)")
 
 
+def cmd_prompts(args, conn, repo) -> None:
+    try:
+        outcomes = prompts.push(force=args.force)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from None
+    for name, outcome in outcomes:
+        print(f"{name}: {outcome}")
+    print(f"Label: {prompts.label()}. Edit the prompts in Langfuse; runs use the version carrying that label.")
+
+
 def cmd_serve(args, conn, repo) -> None:
     try:
         import uvicorn
@@ -198,7 +209,7 @@ def cmd_serve(args, conn, repo) -> None:
 
 
 HANDLERS = {"compare": cmd_compare, "all": cmd_all, "news": cmd_news, "macro": cmd_macro, "fundamentals": cmd_fundamentals, "outlook": cmd_outlook,
-            "reports": cmd_reports, "import": cmd_import, "serve": cmd_serve}
+            "reports": cmd_reports, "import": cmd_import, "serve": cmd_serve, "prompts": cmd_prompts}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -258,6 +269,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "(agents: news, macro, fundamentals, outlook, or all; repeat for more setups; "
                         "default: flash+sonnet and flash+pro)")
     p.add_argument("--dir", default="comparisons", help="folder for the output (default: comparisons)")
+
+    prm = sub.add_parser("prompts", help="manage the agent prompts in Langfuse", parents=[common])
+    psub = prm.add_subparsers(dest="prompts_command", required=True)
+    p = psub.add_parser("push", help="create the prompts in Langfuse from the code defaults (existing ones are kept)",
+                        parents=[common])
+    p.add_argument("--force", action="store_true",
+                   help="push the code default as a new version even where the prompt already exists and differs")
 
     p = sub.add_parser("serve", help="start the web UI", parents=[common])
     p.add_argument("--host", default="127.0.0.1",

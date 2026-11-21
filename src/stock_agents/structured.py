@@ -15,6 +15,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, ValidationInfo, model_validator
 
+from stock_agents import prompts
 from stock_agents.pillars import PillarProfile, prompt_block
 
 logger = logging.getLogger(__name__)
@@ -181,7 +182,7 @@ def _repair(llm: BaseChatModel, agent: str, body: str, bad: str | None, error: s
         + (f"\nA previous attempt was rejected ({error}):\n{bad}\n" if bad else "")
     )
     try:
-        reply = llm.invoke([SystemMessage(REPAIR_SYSTEM), HumanMessage(prompt)])
+        reply = llm.invoke([SystemMessage(prompts.resolve("repair", REPAIR_SYSTEM).text), HumanMessage(prompt)])
     except Exception as exc:  # a failed repair must not fail the report
         logger.warning("Structured-summary repair call failed for %s: %s", agent, exc)
         return None

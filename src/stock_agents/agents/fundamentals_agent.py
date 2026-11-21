@@ -13,7 +13,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END, START, StateGraph
 
-from stock_agents import structured
+from stock_agents import prompts, structured
 from stock_agents.agents.common import run_agent
 from stock_agents.fundamentals import CompanyFinancials, FundamentalsError, fetch_fundamentals
 from stock_agents.metrics import render_data_section
@@ -79,17 +79,18 @@ Two or three quantifiable thresholds for the upcoming result that would challeng
 Explicit list of limitations: data gaps (n/a rows), standalone vs. consolidated reporting, limited peer sample, or brief operating history."""
 
 
-def system_prompt(profile: PillarProfile = GENERAL) -> str:
+def system_prompt(profile: PillarProfile = GENERAL, prose: str = SYSTEM_PROMPT) -> str:
     """The analysis prompt plus the request for the JSON block, which names the sector's pillars."""
-    return f"{SYSTEM_PROMPT}\n\n{structured.instructions('fundamentals', profile)}"
+    return prompts.compose(prose, structured.instructions("fundamentals", profile))
 
 
-def build_fundamentals_agent(llm: BaseChatModel, profile: PillarProfile = GENERAL):
-    """Compile the agent graph: START -> llm -> END (no tools)."""
-    prompt = system_prompt(profile)
+def build_fundamentals_agent(llm: BaseChatModel, profile: PillarProfile = GENERAL, prompt: prompts.Prompt | None = None):
+    """Compile the agent graph: START -> llm -> END (no tools). The prose is fetched from Langfuse if it is set up."""
+    prompt = prompt or prompts.resolve("fundamentals", SYSTEM_PROMPT)
+    system = system_prompt(profile, prompt.text)
 
     def call_llm(state: AgentState) -> dict:
-        return {"messages": [llm.invoke([SystemMessage(prompt), *state["messages"]])]}
+        return {"messages": [llm.invoke([SystemMessage(system), *state["messages"]])]}
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", call_llm)

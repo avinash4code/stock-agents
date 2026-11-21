@@ -29,6 +29,7 @@ def langfuse_on(monkeypatch):
     pytest.importorskip("langfuse")
     for k, v in KEYS.items():
         monkeypatch.setenv(k, v)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", "false")  # real SDK objects, but nothing is exported
     monkeypatch.setattr(observability, "_load_env", lambda: None)
 
