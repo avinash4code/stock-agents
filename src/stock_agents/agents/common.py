@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from stock_agents import structured
+from stock_agents import prompts as prompt_mgmt, structured
 from stock_agents.pillars import PillarProfile
 from stock_agents.state import AgentState
 
@@ -24,9 +24,10 @@ TRUNCATION_NOTE = (
 AGENT_RECURSION_LIMIT = 50
 
 
-def build_tool_agent(llm: BaseChatModel, tools: list, system_prompt: str, name: str):
-    """Compile a tool-calling agent: START -> llm <-> tools -> END."""
-    llm_with_tools = llm.bind_tools(tools)
+def build_tool_agent(llm: BaseChatModel, tools: list, system_prompt: str, name: str,
+                     prompt: prompt_mgmt.Prompt | None = None):
+    """Compile a tool-calling agent: START -> llm <-> tools -> END. `prompt` links the LLM calls to its Langfuse version."""
+    llm_with_tools = prompt_mgmt.linked(llm.bind_tools(tools), prompt)
 
     def call_llm(state: AgentState) -> dict:
         messages = [SystemMessage(system_prompt), *state["messages"]]
@@ -61,6 +62,7 @@ class AgentResult:
     output_tokens: int | None = None
     structured: dict | None = None  # the validated JSON block, if the agent produced a usable one
     repaired: bool = False  # the block only became valid through the repair call
+    prompt: str | None = None  # which prompt wrote it, e.g. news@v7 (see prompts.Prompt.ref)
 
     def meta(self) -> dict:
         """Everything except the text, as stored alongside the report."""
@@ -70,6 +72,7 @@ class AgentResult:
             "output_tokens": self.output_tokens,
             "structured": self.structured,
             "repaired": self.repaired,
+            "prompt": self.prompt,
         }
 
 
@@ -83,16 +86,18 @@ def total_usage(messages) -> tuple[int | None, int | None]:
 
 def run_agent(
     agent, task: str, *, summary: str | None = None, profile: PillarProfile | None = None,
-    repair_llm: BaseChatModel | None = None,
+    repair_llm: BaseChatModel | None = None, prompt: prompt_mgmt.Prompt | None = None,
 ) -> AgentResult:
     """Run an agent on a fresh conversation and return its final text plus run details.
 
     With `summary` (an agent name from `structured.MODELS`) the reply's trailing ```json block is split off
     into `AgentResult.structured`; `repair_llm` is used once if that block is missing or invalid.
+    `prompt` is the prompt the agent was built with; its reference is recorded with the report.
 
     If the final reply was cut off by the token limit (or came back empty because
     reasoning used the whole budget), a visible warning is added to the report text.
     """
+    ref = prompt.ref if prompt else None
     result = agent.invoke(
         {"messages": [HumanMessage(task)]}, config={"recursion_limit": AGENT_RECURSION_LIMIT}
     )
@@ -110,8 +115,8 @@ def run_agent(
     if truncated:
         logger.warning("Agent reply truncated by the output token limit; raise LLM_MAX_TOKENS.")
         text = f"{text.rstrip()}\n\n{TRUNCATION_NOTE}" if text.strip() else TRUNCATION_NOTE
-        return AgentResult(text, truncated, input_tokens, output_tokens)  # a cut-off reply has no usable block
+        return AgentResult(text, truncated, input_tokens, output_tokens, prompt=ref)  # a cut-off reply has no usable block
     data, repaired = None, False
     if summary and text.strip():
         text, data, repaired = structured.extract_detailed(summary, text, profile=profile, repair_llm=repair_llm)
-    return AgentResult(text, truncated, input_tokens, output_tokens, data, repaired)
+    return AgentResult(text, truncated, input_tokens, output_tokens, data, repaired, ref)

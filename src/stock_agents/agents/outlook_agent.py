@@ -54,9 +54,10 @@ def build_outlook_agent(llm: BaseChatModel, prompt: prompts.Prompt | None = None
     """Compile the outlook agent graph: START -> llm -> END (prompt from Langfuse if set up, else `PROSE`)."""
     prompt = prompt or prompts.resolve("outlook", PROSE)
     system = prompts.compose(prompt.text, structured.instructions("outlook"))
+    model = prompts.linked(llm, prompt)
 
     def call_llm(state: AgentState) -> dict:
-        return {"messages": [llm.invoke([SystemMessage(system), *state["messages"]])]}
+        return {"messages": [model.invoke([SystemMessage(system), *state["messages"]])]}
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", call_llm)
@@ -77,10 +78,11 @@ def build_task(state: WorkflowState) -> str:
 
 def outlook_agent_node(llm: BaseChatModel):
     """Workflow node: reads `stock`, `news_report`, `macro_report`, `fundamentals_report`; writes `outlook_report`."""
-    agent = build_outlook_agent(llm)
+    prompt = prompts.resolve("outlook", PROSE)
+    agent = build_outlook_agent(llm, prompt=prompt)
 
     def node(state: WorkflowState) -> dict:
-        result = run_agent(agent, build_task(state), summary="outlook", repair_llm=llm)
+        result = run_agent(agent, build_task(state), summary="outlook", repair_llm=llm, prompt=prompt)
         return {"outlook_report": result.text, "outlook_meta": result.meta()}
 
     return node

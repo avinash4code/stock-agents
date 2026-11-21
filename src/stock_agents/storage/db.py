@@ -83,6 +83,10 @@ MIGRATIONS = [
     """
     ALTER TABLE runs ADD COLUMN trace_id TEXT;
     """,
+    # 6: which prompt version wrote each report (e.g. news@v7, or news@local for the code default); NULL before this.
+    """
+    ALTER TABLE reports ADD COLUMN prompt_version TEXT;
+    """,
 ]
 
 

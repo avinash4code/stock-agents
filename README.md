@@ -98,6 +98,11 @@ off or unreachable, has no such prompt, or serves a version that lost a section 
 in `prompts.py`). Once seeded, Langfuse is the source of truth: `push` leaves edited prompts alone (`--force` pushes the code
 default as a new version).
 
+The prompt version is recorded with every report (`reports.prompt_version`, e.g. `news@v7`, or `news@local` for the code
+default; shown on the report page), and the LLM calls in each trace are linked to that Langfuse prompt version, so the
+Prompts tab in Langfuse breaks cost, latency and the `<agent>.*` scores down by version. A new prompt version does not
+invalidate stored reports: the reuse windows apply as before.
+
 ## Stored reports
 Every run and report is stored in a local SQLite database (default `data/stock_analyst.db`, next to your `.env`;
 change it with `STOCK_ANALYST_DB` in `.env` or `--db PATH`). Each report keeps its stock, agent, timestamp, token

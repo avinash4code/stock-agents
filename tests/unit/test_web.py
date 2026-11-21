@@ -55,6 +55,18 @@ def client(tmp_path):
     return TestClient(create_app(db, LISTINGS)), {"news": news, "outlook": outlook, "r1": r1, "r2": r2}
 
 
+def test_reports_expose_the_prompt_version(tmp_path):
+    db = tmp_path / "p.db"
+    conn = connect(db)
+    repo = Repository(conn)
+    with conn:
+        run = repo.start_run("all", "TCS")
+        rid = repo.save_report(run, "news", "body", stock="TCS", prompt_version="news@v7")
+    conn.close()
+    c = TestClient(create_app(db, LISTINGS))
+    assert c.get(f"/api/reports/{rid}").json()["prompt_version"] == "news@v7"
+
+
 def test_symbols_endpoint(client):
     c, _ = client
     assert c.get("/api/symbols", params={"q": "infos"}).json() == [{"symbol": "INFY", "name": "Infosys Limited"}]

@@ -68,6 +68,7 @@ class Report:
     provider: str | None = None  # which model wrote it; None for reports imported from files
     model: str | None = None
     structured: dict | None = None  # the agent's validated JSON block; None for old reports or when it was unusable
+    prompt_version: str | None = None  # e.g. news@v7; None for reports written before prompts were tracked
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Report":
@@ -92,6 +93,7 @@ class Report:
             provider=row["provider"],
             model=row["model"],
             structured=structured,
+            prompt_version=row["prompt_version"],
         )
 
 
@@ -146,6 +148,7 @@ class Repository:
         news_report_id: int | None = None, macro_report_id: int | None = None,
         fundamentals_report_id: int | None = None, created_at: datetime | None = None,
         provider: str | None = None, model: str | None = None, structured: dict | None = None,
+        prompt_version: str | None = None,
     ) -> int:
         if agent not in AGENTS:
             raise ValueError(f"unknown agent {agent!r}; expected one of {AGENTS}")
@@ -154,11 +157,11 @@ class Repository:
         cur = self.conn.execute(
             """INSERT INTO reports (run_id, agent, stock, stock_key, content_md, truncated, input_tokens,
                                     output_tokens, created_at, news_report_id, macro_report_id,
-                                    fundamentals_report_id, provider, model, structured_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                    fundamentals_report_id, provider, model, structured_json, prompt_version)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (run_id, agent, stock, stock_key(stock), content_md, int(truncated), input_tokens,
              output_tokens, _iso(created_at or utcnow()), news_report_id, macro_report_id,
-             fundamentals_report_id, provider, model, json.dumps(structured) if structured else None),
+             fundamentals_report_id, provider, model, json.dumps(structured) if structured else None, prompt_version),
         )
         return cur.lastrowid
 

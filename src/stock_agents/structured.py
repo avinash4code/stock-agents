@@ -182,7 +182,8 @@ def _repair(llm: BaseChatModel, agent: str, body: str, bad: str | None, error: s
         + (f"\nA previous attempt was rejected ({error}):\n{bad}\n" if bad else "")
     )
     try:
-        reply = llm.invoke([SystemMessage(prompts.resolve("repair", REPAIR_SYSTEM).text), HumanMessage(prompt)])
+        repair = prompts.resolve("repair", REPAIR_SYSTEM)
+        reply = prompts.linked(llm, repair).invoke([SystemMessage(repair.text), HumanMessage(prompt)])
     except Exception as exc:  # a failed repair must not fail the report
         logger.warning("Structured-summary repair call failed for %s: %s", agent, exc)
         return None

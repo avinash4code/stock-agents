@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from stock_agents import observability
 
@@ -50,6 +51,12 @@ class Prompt:
     text: str
     version: int | None = None  # the Langfuse version; None for the local default
     source: str = "local"  # "langfuse" or "local"
+    langfuse: Any = field(default=None, compare=False, repr=False)  # the Langfuse prompt object, for linking generations
+
+    @property
+    def ref(self) -> str:
+        """Which prompt wrote a report, e.g. `news@v7` (a Langfuse version) or `news@local` (the code default)."""
+        return f"{self.name}@v{self.version}" if self.version is not None else f"{self.name}@local"
 
 
 def compose(prose: str, instructions: str) -> str:
@@ -89,7 +96,22 @@ def resolve(agent: str, fallback: str) -> Prompt:
         logger.warning("Langfuse prompt %s v%s lacks required heading(s) %s; using the local prompt",
                        PREFIX + agent, found.version, lost)
         return local
-    return Prompt(agent, text, found.version, "langfuse")
+    return Prompt(agent, text, found.version, "langfuse", found)
+
+
+def linked(model, prompt: Prompt | None):
+    """`model` set up so the generations it makes are linked to `prompt`'s Langfuse version.
+
+    The Langfuse LangChain handler links an LLM call to a prompt registered by a sibling step that carries the prompt
+    in its metadata (that is what a prompt template does), so an identity step with that metadata is put in front.
+    Only a model that is a Runnable, and only a prompt that came from Langfuse, is touched.
+    """
+    from langchain_core.runnables import Runnable, RunnableLambda
+
+    if prompt is None or prompt.langfuse is None or not isinstance(model, Runnable):
+        return model
+    return RunnableLambda(lambda messages: messages, name="prompt").with_config(
+        metadata={"langfuse_prompt": prompt.langfuse}) | model
 
 
 def defaults() -> dict[str, str]:

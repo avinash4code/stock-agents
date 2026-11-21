@@ -48,7 +48,7 @@ def build_macro_agent(llm: BaseChatModel, tools: list | None = None, prompt: pro
     """Compile the macro agent graph (the prompt is fetched from Langfuse if it is set up, else `PROSE`)."""
     prompt = prompt or prompts.resolve("macro", PROSE)
     system = prompts.compose(prompt.text, structured.instructions("macro"))
-    return build_tool_agent(llm, tools if tools is not None else TOOLS, system, NAME)
+    return build_tool_agent(llm, tools if tools is not None else TOOLS, system, NAME, prompt)
 
 
 def macro_agent_node(llm: BaseChatModel):
@@ -57,12 +57,13 @@ def macro_agent_node(llm: BaseChatModel):
     If the state already carries a `macro_report` (a recent one reused from storage), the
     agent is skipped and nothing is written.
     """
-    agent = build_macro_agent(llm)
+    prompt = prompts.resolve("macro", PROSE)
+    agent = build_macro_agent(llm, prompt=prompt)
 
     def node(state: WorkflowState) -> dict:
         if state.get("macro_report"):
             return {}
-        result = run_agent(agent, TASK, summary="macro", repair_llm=llm)
+        result = run_agent(agent, TASK, summary="macro", repair_llm=llm, prompt=prompt)
         return {"macro_report": result.text, "macro_meta": result.meta()}
 
     return node

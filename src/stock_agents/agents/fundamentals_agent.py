@@ -88,9 +88,10 @@ def build_fundamentals_agent(llm: BaseChatModel, profile: PillarProfile = GENERA
     """Compile the agent graph: START -> llm -> END (no tools). The prose is fetched from Langfuse if it is set up."""
     prompt = prompt or prompts.resolve("fundamentals", SYSTEM_PROMPT)
     system = system_prompt(profile, prompt.text)
+    model = prompts.linked(llm, prompt)
 
     def call_llm(state: AgentState) -> dict:
-        return {"messages": [llm.invoke([SystemMessage(system), *state["messages"]])]}
+        return {"messages": [model.invoke([SystemMessage(system), *state["messages"]])]}
 
     graph = StateGraph(AgentState)
     graph.add_node("llm", call_llm)
@@ -124,10 +125,11 @@ def fundamentals_agent_node(llm: BaseChatModel, fetch=None):
             return {"fundamentals_error": str(exc)}
         task = build_task(state["stock"], data)
         profile = profile_for(data)  # which pillars to rate depends on the sector
-        agent = build_fundamentals_agent(llm, profile)
+        prompt = prompts.resolve("fundamentals", SYSTEM_PROMPT)
+        agent = build_fundamentals_agent(llm, profile, prompt)
 
         def run():
-            return run_agent(agent, task, summary="fundamentals", profile=profile, repair_llm=llm)
+            return run_agent(agent, task, summary="fundamentals", profile=profile, repair_llm=llm, prompt=prompt)
 
         result = run()
         if not result.text.strip():  # reasoning models sometimes answer with hidden reasoning only
