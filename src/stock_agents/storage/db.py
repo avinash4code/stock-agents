@@ -79,6 +79,10 @@ MIGRATIONS = [
     """
     ALTER TABLE reports ADD COLUMN structured_json TEXT;
     """,
+    # 5: the Langfuse trace of each run (NULL when tracing was off), for the link from the run page.
+    """
+    ALTER TABLE runs ADD COLUMN trace_id TEXT;
+    """,
 ]
 
 

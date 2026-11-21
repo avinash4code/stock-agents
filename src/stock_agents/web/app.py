@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from stock_agents import observability
 from stock_agents.reports import export_filename, render_markdown
 from stock_agents.storage import Report, Repository, Run, connect
 from stock_agents.config import LLMConfig, reuse_hours
@@ -75,6 +76,7 @@ def run_summary(run: Run, repo: Repository, jobs: JobManager | None = None, symb
         "started_at": run.started_at.isoformat(),
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "provider": run.provider, "model": run.model,
+        "trace_url": observability.trace_url(run.trace_id),
         "reports": [report_summary(r) for r in own],
         "reused": [report_summary(r) for r in reused.values()],
         "stages": stages,

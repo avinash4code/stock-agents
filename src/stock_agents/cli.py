@@ -18,6 +18,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from stock_agents import observability
 from stock_agents.agents import fundamentals_agent, macro_agent, news_agent, outlook_agent
 from stock_agents.analysis import run_all, save_report, tracked_run
 from stock_agents.compare import (
@@ -295,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         HANDLERS[args.command](args, conn, Repository(conn))
     finally:
         conn.close()
+        observability.flush()
     return 0
 
 

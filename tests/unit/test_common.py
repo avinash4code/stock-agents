@@ -51,4 +51,4 @@ def test_total_usage_sums_every_model_call():
 
 def test_run_agent_reports_token_usage():
     result = _run(AIMessage(content="ok", usage_metadata={"input_tokens": 3, "output_tokens": 4, "total_tokens": 7}))
-    assert result.meta() == {"truncated": False, "input_tokens": 3, "output_tokens": 4, "structured": None}
+    assert result.meta() == {"truncated": False, "input_tokens": 3, "output_tokens": 4, "structured": None, "repaired": False}

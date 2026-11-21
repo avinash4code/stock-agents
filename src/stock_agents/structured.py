@@ -197,11 +197,19 @@ def extract(
     agent: str, text: str, *, profile: PillarProfile | None = None, repair_llm: BaseChatModel | None = None,
 ) -> tuple[str, dict | None]:
     """Split a reply into (markdown, structured). `structured` is None when no valid block could be had."""
+    body, data, _ = extract_detailed(agent, text, profile=profile, repair_llm=repair_llm)
+    return body, data
+
+
+def extract_detailed(
+    agent: str, text: str, *, profile: PillarProfile | None = None, repair_llm: BaseChatModel | None = None,
+) -> tuple[str, dict | None, bool]:
+    """Like `extract`, plus whether the block only became valid through the repair call."""
     body, raw = split_block(text)
     error = "no JSON block"
     if raw is not None:
         try:
-            return body, validate(agent, raw, profile)
+            return body, validate(agent, raw, profile), False
         except (ValueError, ValidationError) as exc:
             error = str(exc).splitlines()[0][:200]
             logger.warning("Invalid %s summary block (%s)", agent, error)
@@ -209,7 +217,7 @@ def extract(
         fixed = _repair(repair_llm, agent, body, raw, error, profile)
         if fixed:
             try:
-                return body, validate(agent, fixed, profile)
+                return body, validate(agent, fixed, profile), True
             except (ValueError, ValidationError) as exc:
                 logger.warning("Repaired %s summary block still invalid: %s", agent, str(exc).splitlines()[0][:200])
-    return body, None
+    return body, None, False

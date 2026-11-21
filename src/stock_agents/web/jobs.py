@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Callable
 
+from stock_agents import observability
 from stock_agents.analysis import STAGES, run_all
 from stock_agents.config import LLMConfig
 from stock_agents.llm import build_llm
@@ -100,6 +101,7 @@ class JobManager:
                         self._stages[run_id][stage] = "failed"
         finally:
             conn.close()
+            observability.flush()
             with self._lock:
                 self._active.pop(key, None)
 

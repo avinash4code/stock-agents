@@ -72,6 +72,7 @@ export default function RunPage() {
           </li>
         ))}
       </ol>
+      {run.trace_url && <p className="muted small"><a href={run.trace_url} target="_blank" rel="noreferrer">View trace in Langfuse ↗</a></p>}
       {error && <p className="error">Lost contact with the server ({error}); retrying…</p>}
       {run.status === "failed" && <p className="error">{run.error}</p>}
       {run.status === "ok" && <p><Link className="btn primary" to={`/stock/${encodeURIComponent(run.symbol || run.stock)}`}>View reports</Link></p>}

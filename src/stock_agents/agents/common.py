@@ -60,6 +60,7 @@ class AgentResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     structured: dict | None = None  # the validated JSON block, if the agent produced a usable one
+    repaired: bool = False  # the block only became valid through the repair call
 
     def meta(self) -> dict:
         """Everything except the text, as stored alongside the report."""
@@ -68,6 +69,7 @@ class AgentResult:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "structured": self.structured,
+            "repaired": self.repaired,
         }
 
 
@@ -109,7 +111,7 @@ def run_agent(
         logger.warning("Agent reply truncated by the output token limit; raise LLM_MAX_TOKENS.")
         text = f"{text.rstrip()}\n\n{TRUNCATION_NOTE}" if text.strip() else TRUNCATION_NOTE
         return AgentResult(text, truncated, input_tokens, output_tokens)  # a cut-off reply has no usable block
-    data = None
+    data, repaired = None, False
     if summary and text.strip():
-        text, data = structured.extract(summary, text, profile=profile, repair_llm=repair_llm)
-    return AgentResult(text, truncated, input_tokens, output_tokens, data)
+        text, data, repaired = structured.extract_detailed(summary, text, profile=profile, repair_llm=repair_llm)
+    return AgentResult(text, truncated, input_tokens, output_tokens, data, repaired)

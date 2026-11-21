@@ -37,6 +37,7 @@ class Run:
     error: str | None
     provider: str | None
     model: str | None
+    trace_id: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Run":
@@ -46,6 +47,7 @@ class Run:
             started_at=datetime.fromisoformat(row["started_at"]),
             finished_at=datetime.fromisoformat(finished) if finished else None,
             status=row["status"], error=row["error"], provider=row["provider"], model=row["model"],
+            trace_id=row["trace_id"],
         )
 
 
@@ -113,6 +115,9 @@ class Repository:
             "UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ?",
             (status, error, _iso(now or utcnow()), run_id),
         )
+
+    def set_trace_id(self, run_id: int, trace_id: str) -> None:
+        self.conn.execute("UPDATE runs SET trace_id = ? WHERE id = ?", (trace_id, run_id))
 
     def get_run(self, run_id: int) -> Run | None:
         row = self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()

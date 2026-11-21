@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from datetime import timedelta
 from typing import Callable
 
-from stock_agents.config import LLMConfig, reuse_hours
+from stock_agents import observability
+from stock_agents.config import AGENTS, LLMConfig, reuse_hours
 from stock_agents.graph import run_workflow
 from stock_agents.storage import Report, Repository
 from stock_agents.storage.repository import utcnow
@@ -29,14 +30,19 @@ def tracked_run(conn: sqlite3.Connection, command: str, stock: str | None, cfg: 
         provider, model = cfg.describe()
         with conn:
             run_id = repo.start_run(command, stock, provider=provider, model=model, max_tokens=cfg.max_tokens)
-    try:
-        yield run_id
-    except BaseException as exc:
+    models = {agent: "/".join(cfg.for_agent(agent).describe()) for agent in AGENTS}
+    with observability.trace(command, stock, run_id, models) as tr:
+        if tr:
+            with conn:
+                repo.set_trace_id(run_id, tr.trace_id)
+        try:
+            yield run_id
+        except BaseException as exc:
+            with conn:
+                repo.finish_run(run_id, "failed", f"{type(exc).__name__}: {exc}")
+            raise
         with conn:
-            repo.finish_run(run_id, "failed", f"{type(exc).__name__}: {exc}")
-        raise
-    with conn:
-        repo.finish_run(run_id)
+            repo.finish_run(run_id)
 
 
 def save_report(repo: Repository, run_id: int, agent: str, stock: str | None, text: str, meta: dict | None,
@@ -49,6 +55,7 @@ def save_report(repo: Repository, run_id: int, agent: str, stock: str | None, te
         input_tokens=meta.get("input_tokens"), output_tokens=meta.get("output_tokens"),
         provider=agent_cfg.provider, model=agent_cfg.model, structured=meta.get("structured"), **links,
     )
+    observability.score_report(agent, meta)
     note = " (INCOMPLETE: hit the token limit)" if meta.get("truncated") else ""
     notify(f"Saved {agent} report #{report_id}{note}")
     return report_id
@@ -114,6 +121,9 @@ def run_all(
             fundamentals_report=fund_old.content_md if fund_old else None,
             **kwargs,
         )
+        for stage, old in (("news", news_old), ("macro", macro_old), ("fundamentals", fund_old)):
+            if old:
+                observability.score_report(stage, None, reused=True)
         saved: dict[str, int] = {}
         with conn:
             saved["news"] = news_old.id if news_old else save_report(
@@ -128,6 +138,7 @@ def run_all(
                     result.get("fundamentals_meta"), cfg, notify)
             else:  # data unavailable: the outlook still runs, without it
                 notify(f"Warning: no fundamentals report - {result.get('fundamentals_error', 'unknown error')}")
+                observability.score_unavailable("fundamentals", str(result.get("fundamentals_error", "unknown error")))
                 emit("fundamentals", "failed")
             saved["outlook"] = save_report(
                 repo, run_id, "outlook", stock, result["outlook_report"], result.get("outlook_meta"), cfg, notify,

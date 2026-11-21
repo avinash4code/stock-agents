@@ -74,6 +74,18 @@ same-origin JSON requests to start runs. For frontend development run `stock-ana
 Add `-v` to log the settings used and each agent's token usage / finish reason.
 Use `news` and `macro` first, then `outlook`, to iterate on the outlook prompt without re-running the other agents.
 
+## Tracing with Langfuse (optional)
+    .venv/bin/pip install -e '.[observability]'
+    # .env: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY (and LANGFUSE_HOST; default is the EU cloud, US is https://us.cloud.langfuse.com)
+
+With the keys set, every run (`all`, `news`, `macro`, `fundamentals`, `outlook`; not `compare`) becomes one Langfuse trace: the agent
+nodes, every LLM call (model, tokens, cost) and tool call, including the structured-summary repair calls. The trace is
+tagged with the command, stock and models, grouped in a session per run (`run-<id>`), and its id is stored on the run
+(`runs.trace_id`), so the run page in the web UI links to it. Each report also adds scores to the trace, named
+`<agent>.<signal>`: `structured_valid`, `structured_repaired`, `truncated`, `input_tokens`, `output_tokens`, `reused`
+(and `fundamentals.unavailable` when Screener could not be reached). Without keys, or with `LANGFUSE_ENABLED=false`,
+nothing is sent and nothing changes; a tracing error never fails a run. `observability.py` holds all of it.
+
 ## Stored reports
 Every run and report is stored in a local SQLite database (default `data/stock_analyst.db`, next to your `.env`;
 change it with `STOCK_ANALYST_DB` in `.env` or `--db PATH`). Each report keeps its stock, agent, timestamp, token
